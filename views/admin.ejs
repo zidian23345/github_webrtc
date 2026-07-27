@@ -1,0 +1,797 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>管理员后台</title>
+    <link rel="stylesheet" href="/styles/fontawesome/css/font-awesome.min.css">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; background: #f5f5f5; color: #333; }
+
+        .header {
+            background: linear-gradient(135deg, #5765ec 0%, #3f51b5 100%);
+            color: #fff; padding: 20px 24px; display: flex;
+            justify-content: space-between; align-items: center;
+        }
+        .header h1 { font-size: 22px; font-weight: 500; }
+        .header-actions { display: flex; gap: 12px; }
+        .header-btn {
+            background: rgba(255,255,255,0.2); color: #fff; border: none;
+            padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 14px;
+            text-decoration: none; display: inline-flex; align-items: center; gap: 6px;
+        }
+        .header-btn:hover { background: rgba(255,255,255,0.3); }
+
+        .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+
+        .stats {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 16px; margin-bottom: 20px;
+        }
+        .stat-card {
+            background: #fff; border-radius: 12px; padding: 20px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+        }
+        .stat-label { font-size: 13px; color: #888; margin-bottom: 6px; }
+        .stat-value { font-size: 28px; font-weight: 600; color: #5765ec; }
+
+        .tabs {
+            display: flex; gap: 4px; margin-bottom: 16px;
+            background: #fff; padding: 6px; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+        }
+        .tab {
+            padding: 10px 20px; cursor: pointer; border-radius: 8px;
+            font-size: 14px; color: #666; transition: all 0.2s; border: none;
+            background: transparent; flex: 1; text-align: center;
+        }
+        .tab.active { background: #5765ec; color: #fff; }
+
+        .panel { background: #fff; border-radius: 12px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); display: none; }
+        .panel.active { display: block; }
+
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        th { text-align: left; padding: 10px 8px; background: #f5f5f5; color: #666; font-weight: 500; border-bottom: 1px solid #e0e0e0; }
+        td { padding: 10px 8px; border-bottom: 1px solid #f0f0f0; vertical-align: top; }
+        tr:hover { background: #fafafa; }
+
+        .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; }
+        .badge-online { background: #e6f7e6; color: #52c41a; }
+        .badge-offline { background: #f5f5f5; color: #999; }
+        .badge-banned { background: #ffebee; color: #c62828; }
+        .badge-host { background: #e3f2fd; color: #1976d2; }
+        .badge-ghost { background: #f3e5f5; color: #7b1fa2; }
+        .badge-hidden { background: #fff3e0; color: #e65100; }
+
+        .btn {
+            padding: 5px 10px; border: none; border-radius: 5px;
+            cursor: pointer; font-size: 12px; margin: 2px;
+        }
+        .btn-ban { background: #fa5151; color: #fff; }
+        .btn-unban { background: #07c160; color: #fff; }
+        .btn-rename { background: #5765ec; color: #fff; }
+        .btn-monitor { background: #ff9c19; color: #fff; }
+        .btn-hide { background: #e65100; color: #fff; }
+        .btn-show { background: #00ae9d; color: #fff; }
+        .btn:hover { opacity: 0.85; }
+
+        .msg-item { padding: 10px 8px; border-bottom: 1px solid #f0f0f0; display: flex; gap: 10px; }
+        .msg-item.hidden { background: #fff5f5; }
+        .msg-meta { font-size: 11px; color: #888; }
+        .msg-content { font-size: 13px; margin-top: 4px; word-break: break-all; }
+        .msg-content img { max-width: 100px; max-height: 100px; border-radius: 4px; }
+        .msg-actions { margin-left: auto; white-space: nowrap; }
+
+        .modal-mask {
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.5); z-index: 200; display: none;
+            align-items: center; justify-content: center;
+        }
+        .modal-mask.show { display: flex; }
+        .modal-box { background: #fff; border-radius: 12px; width: 90%; max-width: 460px; overflow: hidden; }
+        .modal-title { padding: 20px 16px 8px; font-size: 17px; font-weight: 500; text-align: center; }
+        .modal-content { padding: 8px 16px 16px; }
+        .modal-textarea {
+            width: 100%; min-height: 80px; border: 1px solid #d9d9d9; border-radius: 8px;
+            padding: 10px 12px; font-size: 14px; outline: none; margin-top: 8px; resize: vertical; font-family: inherit;
+        }
+        .modal-checkbox-group { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
+        .modal-checkbox-group label { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+        .modal-input {
+            width: 100%; height: 40px; border: 1px solid #d9d9d9; border-radius: 8px;
+            padding: 0 12px; font-size: 14px; outline: none; margin-top: 8px;
+        }
+        .modal-btns { display: flex; border-top: 1px solid #e5e5e5; }
+        .modal-btn { flex: 1; height: 48px; border: none; background: #fff; font-size: 16px; cursor: pointer; color: #5765ec; }
+        .modal-btn.cancel { color: #888; border-right: 1px solid #e5e5e5; }
+
+        .banned-words-box {
+            border: 1px solid #e0e0e0; border-radius: 8px; padding: 12px;
+            min-height: 80px; margin-top: 8px;
+        }
+        .word-tag {
+            display: inline-block; background: #ffebee; color: #c62828;
+            padding: 4px 10px; margin: 2px; border-radius: 12px; font-size: 13px;
+        }
+        .word-tag .remove { cursor: pointer; margin-left: 6px; font-weight: bold; }
+
+        .refresh-btn {
+            background: #5765ec; color: #fff; border: none; padding: 8px 16px;
+            border-radius: 6px; cursor: pointer; font-size: 13px; margin-bottom: 12px;
+        }
+
+        .empty { text-align: center; padding: 40px; color: #999; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1><i class="fa fa-shield"></i> 管理员后台</h1>
+        <div class="header-actions">
+            <a href="/" class="header-btn"><i class="fa fa-home"></i> 聊天室</a>
+            <a href="/zidian/logout" class="header-btn"><i class="fa fa-sign-out"></i> 退出</a>
+        </div>
+    </div>
+
+    <div class="container">
+        <!-- 统计卡片 -->
+        <div class="stats">
+            <div class="stat-card">
+                <div class="stat-label">在线用户</div>
+                <div class="stat-value" id="statOnline">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">活跃会议</div>
+                <div class="stat-value" id="statRooms">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">消息总数</div>
+                <div class="stat-value" id="statMessages">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">已隐藏消息</div>
+                <div class="stat-value" id="statHidden">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">已封禁用户</div>
+                <div class="stat-value" id="statBanned">0</div>
+            </div>
+        </div>
+
+        <!-- 标签页 -->
+        <div class="tabs">
+            <button class="tab active" onclick="switchTab('rooms')"><i class="fa fa-video-camera"></i> 会议</button>
+            <button class="tab" onclick="switchTab('messages')"><i class="fa fa-comments"></i> 消息</button>
+            <button class="tab" onclick="switchTab('friends')"><i class="fa fa-user-plus"></i> 好友</button>
+            <button class="tab" onclick="switchTab('users')"><i class="fa fa-users"></i> 用户</button>
+            <button class="tab" onclick="switchTab('words')"><i class="fa fa-filter"></i> 违禁词</button>
+            <button class="tab" onclick="switchTab('update')"><i class="fa fa-cloud-upload"></i> 发布更新</button>
+        </div>
+
+        <!-- 会议面板 -->
+        <div class="panel active" id="panel-rooms">
+            <button class="refresh-btn" onclick="loadRooms()"><i class="fa fa-refresh"></i> 刷新</button>
+            <div id="roomsList"></div>
+        </div>
+
+        <!-- 消息面板 -->
+        <div class="panel" id="panel-messages">
+            <button class="refresh-btn" onclick="loadMessages()"><i class="fa fa-refresh"></i> 刷新</button>
+            <button class="refresh-btn" style="background:#fa5151;color:#fff;margin-left:8px;" onclick="clearAllMessages()"><i class="fa fa-trash"></i> 清空所有消息</button>
+            <div id="messagesList"></div>
+        </div>
+
+        <!-- 好友面板 -->
+        <div class="panel" id="panel-friends">
+            <h3 style="margin-bottom:8px;">好友关系</h3>
+            <button class="refresh-btn" onclick="loadFriends()"><i class="fa fa-refresh"></i> 刷新好友列表</button>
+            <button class="refresh-btn" style="background:#5765ec;color:#fff;margin-left:8px;" onclick="loadPrivateConversations()"><i class="fa fa-comments"></i> 查看私聊记录</button>
+            <div id="friendsListAdmin" style="margin-top:12px;"></div>
+            <div id="privateConversations" style="margin-top:20px;display:none;">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+                    <button class="refresh-btn" onclick="backToFriendsList()"><i class="fa fa-angle-left"></i> 返回好友列表</button>
+                    <span style="font-size:14px;font-weight:500;">私聊记录（服务端缓存最近 50 条/对）</span>
+                </div>
+                <div id="conversationsList"></div>
+            </div>
+            <div id="privateMessagesView" style="margin-top:20px;display:none;">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+                    <button class="refresh-btn" onclick="backToConversationsList()"><i class="fa fa-angle-left"></i> 返回列表</button>
+                    <span id="privateMessagesTitle" style="font-size:14px;font-weight:500;"></span>
+                </div>
+                <div id="privateMessagesList"></div>
+            </div>
+        </div>
+
+        <!-- 用户面板 -->
+        <div class="panel" id="panel-users">
+            <button class="refresh-btn" onclick="loadUsers()"><i class="fa fa-refresh"></i> 刷新</button>
+            <div id="usersList"></div>
+        </div>
+
+        <!-- 违禁词面板 -->
+        <div class="panel" id="panel-words">
+            <h3 style="margin-bottom: 12px;">违禁词管理</h3>
+            <p style="color: #666; font-size: 13px; margin-bottom: 12px;">包含违禁词的消息将无法发送，发送者会收到提示。</p>
+            <input type="text" class="modal-input" id="newWordInput" placeholder="输入违禁词，按回车添加" onkeypress="if(event.key==='Enter')addWord()">
+            <div class="banned-words-box" id="wordsBox"></div>
+        </div>
+
+        <!-- 发布更新面板 -->
+        <div class="panel" id="panel-update">
+            <h3 style="margin-bottom: 12px;">发布应用更新</h3>
+            <div id="currentVersionInfo" style="background:#f5f5f5;padding:12px;border-radius:8px;margin-bottom:16px;font-size:13px;color:#666;">加载中...</div>
+            <div style="margin-bottom:12px;">
+                <label style="display:block;font-size:13px;color:#666;margin-bottom:4px;">版本号（如 1.1）</label>
+                <input type="text" class="modal-input" id="updateVersionName" placeholder="1.1" style="width:120px;">
+            </div>
+            <div style="margin-bottom:12px;">
+                <label style="display:block;font-size:13px;color:#666;margin-bottom:4px;">版本数字代码（递增整数）</label>
+                <input type="number" class="modal-input" id="updateVersionCode" placeholder="2" style="width:120px;">
+            </div>
+            <div style="margin-bottom:12px;">
+                <label style="display:block;font-size:13px;color:#666;margin-bottom:4px;">更新内容</label>
+                <textarea class="modal-textarea" id="updateContent" placeholder="1. 修复 xxx&#10;2. 新增 xxx&#10;3. 优化 xxx" rows="5" style="width:100%;max-width:500px;"></textarea>
+            </div>
+            <div style="margin-bottom:12px;">
+                <label style="display:block;font-size:13px;color:#666;margin-bottom:4px;">APK 文件</label>
+                <input type="file" id="updateApkFile" accept=".apk" style="font-size:13px;">
+                <p style="font-size:12px;color:#999;margin-top:4px;">选择编译好的 APK 文件</p>
+            </div>
+            <button class="refresh-btn" style="background:#07c160;color:#fff;" onclick="publishUpdate()"><i class="fa fa-upload"></i> 发布更新</button>
+        </div>
+    </div>
+
+    <!-- 封禁弹窗 -->
+    <div class="modal-mask" id="banModal">
+        <div class="modal-box">
+            <div class="modal-title">封禁用户</div>
+            <div class="modal-content">
+                <p id="banUserInfo" style="font-size: 14px; margin-bottom: 8px;"></p>
+                <textarea class="modal-textarea" id="banReason" placeholder="请输入封禁理由"></textarea>
+                <div class="modal-checkbox-group">
+                    <label><input type="checkbox" id="banChat" checked> 禁言（不能发消息）</label>
+                    <label><input type="checkbox" id="banMeeting"> 禁用会议功能</label>
+                </div>
+            </div>
+            <div class="modal-btns">
+                <button class="modal-btn cancel" onclick="closeBanModal()">取消</button>
+                <button class="modal-btn" onclick="confirmBan()" style="color:#fa5151;">确认封禁</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 解封弹窗 -->
+    <div class="modal-mask" id="unbanModal">
+        <div class="modal-box">
+            <div class="modal-title">解封用户</div>
+            <div class="modal-content">
+                <p id="unbanUserInfo" style="font-size: 14px; margin-bottom: 8px;"></p>
+                <textarea class="modal-textarea" id="unbanReason" placeholder="请输入解封理由"></textarea>
+            </div>
+            <div class="modal-btns">
+                <button class="modal-btn cancel" onclick="closeUnbanModal()">取消</button>
+                <button class="modal-btn" onclick="confirmUnban()" style="color:#07c160;">确认解封</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 改名弹窗 -->
+    <div class="modal-mask" id="renameModal">
+        <div class="modal-box">
+            <div class="modal-title">修改用户名称</div>
+            <div class="modal-content">
+                <p id="renameUserInfo" style="font-size: 14px; margin-bottom: 8px;"></p>
+                <input type="text" class="modal-input" id="newName" placeholder="输入新名称">
+            </div>
+            <div class="modal-btns">
+                <button class="modal-btn cancel" onclick="closeRenameModal()">取消</button>
+                <button class="modal-btn" onclick="confirmRename()">确认</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentBanSocketId = null;
+        let currentUnbanSocketId = null;
+        let currentRenameData = null;
+        let bannedWords = [];
+
+        function switchTab(name) {
+            document.querySelectorAll('.tab').forEach((t, i) => {
+                t.classList.toggle('active', ['rooms','messages','friends','users','words','update'][i] === name);
+            });
+            document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+            document.getElementById('panel-' + name).classList.add('active');
+            if (name === 'rooms') loadRooms();
+            else if (name === 'messages') loadMessages();
+            else if (name === 'friends') loadFriends();
+            else if (name === 'users') loadUsers();
+            else if (name === 'words') loadWords();
+            else if (name === 'update') loadCurrentVersion();
+        }
+
+        // ===== 好友关系管理 =====
+        async function loadFriends() {
+            const el = document.getElementById('friendsListAdmin');
+            el.innerHTML = '<div class="empty">加载中...</div>';
+            // 切回好友列表视图（隐藏私聊相关面板）
+            document.getElementById('friendsListAdmin').style.display = 'block';
+            document.getElementById('privateConversations').style.display = 'none';
+            document.getElementById('privateMessagesView').style.display = 'none';
+            try {
+                const res = await fetch('/api/admin/friends');
+                const data = await res.json();
+                const list = data.friends || [];
+                if (list.length === 0) {
+                    el.innerHTML = '<div class="empty">暂无好友关系</div>';
+                    return;
+                }
+                let html = '<table><thead><tr><th>用户</th><th>好友列表</th><th>数量</th></tr></thead><tbody>';
+                for (const item of list) {
+                    const friends = item.friends || [];
+                    const friendsHtml = friends.length === 0
+                        ? '<span style="color:#999;">无</span>'
+                        : friends.map(f => `<span class="badge badge-online" style="margin:2px;">${escapeHtml(f)}</span>`).join('');
+                    html += `<tr>
+                        <td style="font-weight:500;">${escapeHtml(item.userName)}</td>
+                        <td>${friendsHtml}</td>
+                        <td>${friends.length}</td>
+                    </tr>`;
+                }
+                html += '</tbody></table>';
+                el.innerHTML = html;
+            } catch (e) {
+                el.innerHTML = '<div class="empty">加载失败：' + (e.message || '') + '</div>';
+            }
+        }
+
+        // 列出所有私聊会话
+        async function loadPrivateConversations() {
+            // 隐藏好友列表，显示私聊会话列表
+            document.getElementById('friendsListAdmin').style.display = 'none';
+            document.getElementById('privateMessagesView').style.display = 'none';
+            const wrap = document.getElementById('privateConversations');
+            const list = document.getElementById('conversationsList');
+            wrap.style.display = 'block';
+            list.innerHTML = '<div class="empty">加载中...</div>';
+            try {
+                const res = await fetch('/api/admin/private-conversations');
+                const data = await res.json();
+                const convs = data.conversations || [];
+                if (convs.length === 0) {
+                    list.innerHTML = '<div class="empty">暂无私聊记录</div>';
+                    return;
+                }
+                let html = '<table><thead><tr><th>会话双方</th><th>消息数</th><th>最后消息时间</th><th>操作</th></tr></thead><tbody>';
+                for (const c of convs) {
+                    const time = c.lastTime ? new Date(c.lastTime).toLocaleString() : '-';
+                    html += `<tr>
+                        <td><span class="badge badge-host">${escapeHtml(c.userA)}</span> <i class="fa fa-exchange" style="color:#999;"></i> <span class="badge badge-host">${escapeHtml(c.userB)}</span></td>
+                        <td>${c.count}</td>
+                        <td style="font-size:12px;color:#888;">${time}</td>
+                        <td><button class="btn btn-rename" onclick="viewPrivateMessages('${encodeURIComponent(c.userA)}','${encodeURIComponent(c.userB)}')">查看记录</button></td>
+                    </tr>`;
+                }
+                html += '</tbody></table>';
+                list.innerHTML = html;
+            } catch (e) {
+                list.innerHTML = '<div class="empty">加载失败：' + (e.message || '') + '</div>';
+            }
+        }
+
+        // 查看具体某两个用户的私聊记录
+        async function viewPrivateMessages(userAEnc, userBEnc) {
+            const userA = decodeURIComponent(userAEnc);
+            const userB = decodeURIComponent(userBEnc);
+            // 切换视图：隐藏会话列表，显示消息记录
+            document.getElementById('privateConversations').style.display = 'none';
+            document.getElementById('privateMessagesView').style.display = 'block';
+            document.getElementById('privateMessagesTitle').textContent = userA + ' ↔ ' + userB;
+            const list = document.getElementById('privateMessagesList');
+            list.innerHTML = '<div class="empty">加载中...</div>';
+            try {
+                const res = await fetch(`/api/admin/private-messages?userA=${encodeURIComponent(userA)}&userB=${encodeURIComponent(userB)}`);
+                const data = await res.json();
+                const msgs = data.messages || [];
+                if (msgs.length === 0) {
+                    list.innerHTML = '<div class="empty">该会话暂无消息</div>';
+                    return;
+                }
+                let html = '';
+                for (const m of msgs) {
+                    // 服务端消息字段：sender（发送者） + 推送时附带 from 字段
+                    const fromName = m.sender || m.from || '';
+                    const toName = (fromName === userA) ? userB : userA;
+                    const time = m.timestamp ? new Date(m.timestamp).toLocaleString() : '';
+                    let content = '';
+                    if (m.type === 'image' && m.content) {
+                        content = `<img src="${m.content}" style="max-width:120px;max-height:120px;border-radius:4px;">`;
+                    } else if (m.type === 'video' && m.content) {
+                        content = `<a href="${m.content}" target="_blank" style="color:#5765ec;">[视频消息]</a>`;
+                    } else if (m.type === 'voice') {
+                        content = `[语音消息] ${m.duration || 0}秒`;
+                    } else {
+                        content = escapeHtml(m.content || '');
+                        if (m.recalled) content = '<span style="color:#999;">[已撤回] ' + content + '</span>';
+                    }
+                    const isSelf = fromName === userA;
+                    html += `<div class="msg-item" style="background:${isSelf ? '#f6f9ff' : '#fff'};">
+                        <div style="flex:1;">
+                            <div class="msg-meta"><strong>${escapeHtml(fromName)}</strong> → <strong>${escapeHtml(toName)}</strong> · ${time}</div>
+                            <div class="msg-content">${content}</div>
+                        </div>
+                    </div>`;
+                }
+                list.innerHTML = html;
+            } catch (e) {
+                list.innerHTML = '<div class="empty">加载失败：' + (e.message || '') + '</div>';
+            }
+        }
+
+        // 返回好友列表视图（从私聊会话列表返回）
+        function backToFriendsList() {
+            document.getElementById('privateConversations').style.display = 'none';
+            document.getElementById('privateMessagesView').style.display = 'none';
+            document.getElementById('friendsListAdmin').style.display = 'block';
+        }
+
+        // 从单条会话消息视图返回到会话列表
+        function backToConversationsList() {
+            document.getElementById('privateMessagesView').style.display = 'none';
+            document.getElementById('privateConversations').style.display = 'block';
+            document.getElementById('friendsListAdmin').style.display = 'none';
+        }
+
+        function escapeHtml(s) {
+            if (s === null || s === undefined) return '';
+            return String(s).replace(/[&<>"']/g, ch => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+            })[ch]);
+        }
+
+        // 加载当前已发布版本信息
+        async function loadCurrentVersion() {
+            try {
+                const res = await fetch('/api/admin/app-version');
+                const data = await res.json();
+                const el = document.getElementById('currentVersionInfo');
+                if (data.versionInfo) {
+                    const v = data.versionInfo;
+                    const date = new Date(v.publishedAt).toLocaleString();
+                    el.innerHTML = `<strong>当前已发布版本：</strong>v${v.versionName} (code=${v.versionCode})<br><strong>发布时间：</strong>${date}<br><strong>更新内容：</strong><br>${(v.updateContent||'无').replace(/\n/g,'<br>')}`;
+                    // 自动填充新版本字段（递增）
+                    document.getElementById('updateVersionName').value = v.versionName;
+                    document.getElementById('updateVersionCode').value = v.versionCode + 1;
+                } else {
+                    el.innerHTML = '<strong>当前：</strong>尚无已发布的版本';
+                }
+            } catch (e) {
+                document.getElementById('currentVersionInfo').textContent = '加载失败';
+            }
+        }
+
+        // 发布更新
+        async function publishUpdate() {
+            const versionName = document.getElementById('updateVersionName').value.trim();
+            const versionCode = document.getElementById('updateVersionCode').value.trim();
+            const updateContent = document.getElementById('updateContent').value.trim();
+            const fileInput = document.getElementById('updateApkFile');
+            if (!versionName || !versionCode) { alert('请填写版本号'); return; }
+            if (!fileInput.files[0]) { alert('请选择 APK 文件'); return; }
+            const file = fileInput.files[0];
+            if (!file.name.endsWith('.apk')) { alert('请选择 .apk 文件'); return; }
+            if (file.size > 80 * 1024 * 1024) { alert('APK 文件不能超过 80MB'); return; }
+            if (!confirm(`确定发布版本 v${versionName} (code=${versionCode})？`)) return;
+            try {
+                document.querySelector('button[onclick="publishUpdate()"]').textContent = '上传中...';
+                const reader = new FileReader();
+                reader.onload = async function(e) {
+                    const res = await fetch('/api/admin/publish-update', {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            versionCode: parseInt(versionCode),
+                            versionName,
+                            updateContent,
+                            apkData: e.target.result
+                        })
+                    });
+                    const data = await res.json();
+                    document.querySelector('button[onclick="publishUpdate()"]').innerHTML = '<i class="fa fa-upload"></i> 发布更新';
+                    if (data.error) { alert(data.error); return; }
+                    alert('发布成功！客户端将在下次启动时收到更新提示');
+                    loadCurrentVersion();
+                    document.getElementById('updateContent').value = '';
+                    document.getElementById('updateApkFile').value = '';
+                };
+                reader.readAsDataURL(file);
+            } catch (e) { alert('发布失败：网络错误'); }
+        }
+
+        async function loadRooms() {
+            try {
+                const res = await fetch('/api/admin/rooms');
+                const data = await res.json();
+                document.getElementById('statRooms').textContent = data.total;
+                const list = document.getElementById('roomsList');
+                if (data.rooms.length === 0) { list.innerHTML = '<div class="empty">暂无活跃会议</div>'; return; }
+                let html = '<table><thead><tr><th>房间号</th><th>房主</th><th>人数</th><th>成员</th><th>操作</th></tr></thead><tbody>';
+                data.rooms.forEach(r => {
+                    const members = r.members.map(m => `${m.name}${m.isHost ? '(房主)' : ''}${m.isGhost ? '(监控)' : ''}`).join(', ');
+                    html += `<tr>
+                        <td><strong>${r.roomId}</strong></td>
+                        <td>${r.hostName}</td>
+                        <td>${r.memberCount}</td>
+                        <td style="max-width:300px;word-break:break-all;">${members}</td>
+                        <td>
+                            <button class="btn btn-monitor" onclick="monitorRoom('${r.roomId}')"><i class="fa fa-eye"></i> 监控</button>
+                        </td>
+                    </tr>`;
+                });
+                html += '</tbody></table>';
+                list.innerHTML = html;
+            } catch (e) { console.error(e); }
+        }
+
+        async function loadMessages() {
+            try {
+                const res = await fetch('/api/admin/messages?limit=100');
+                const data = await res.json();
+                document.getElementById('statMessages').textContent = data.total;
+                document.getElementById('statHidden').textContent = data.hiddenCount;
+                const list = document.getElementById('messagesList');
+                if (data.messages.length === 0) { list.innerHTML = '<div class="empty">暂无消息</div>'; return; }
+                let html = '';
+                data.messages.reverse().forEach(m => {
+                    const time = new Date(m.timestamp).toLocaleString();
+                    let content = '';
+                    if (m.recalled) {
+                        content = '<em style="color:#999;">[已撤回] ' + (m.type === 'voice' ? '语音消息' : m.type === 'image' ? '图片消息' : m.type === 'video' ? '视频消息' : (m.originalContent || '消息')) + '</em>';
+                    } else if (m.type === 'image') content = '<img src="' + m.content + '">';
+                    else if (m.type === 'video') content = '<video src="' + m.content + '" controls playsinline webkit-playsinline style="max-width:200px;max-height:200px;border-radius:4px;"></video>';
+                    else if (m.type === 'voice') content = '[语音 ' + (m.duration||0) + '秒]';
+                    else if (m.type === 'system') content = '<em>' + m.content + '</em>';
+                    else content = m.content;
+                    const hiddenClass = (m.hidden || m.banned) ? ' hidden' : '';
+                    const hiddenBadge = (m.hidden || m.banned) ? ' <span class="badge badge-hidden">已隐藏</span>' : '';
+                    const recalledBadge = m.recalled ? ' <span class="badge" style="background:#999;color:#fff;">已撤回</span>' : '';
+                    html += `<div class="msg-item${hiddenClass}">
+                        <div style="flex:1;">
+                            <div class="msg-meta">
+                                <strong>${m.name || '系统'}</strong> · ${time} ${hiddenBadge} ${recalledBadge}
+                                ${m.socketId ? '<br>Socket: ' + m.socketId : ''}
+                            </div>
+                            <div class="msg-content">${content}</div>
+                        </div>
+                        <div class="msg-actions">
+                            ${m.type !== 'system' ? (m.hidden ?
+                                `<button class="btn btn-show" onclick="showMessage('${m.id}')">恢复显示</button>` :
+                                `<button class="btn btn-hide" onclick="hideMessage('${m.id}')">隐藏</button>`) : ''}
+                            <button class="btn" style="background:#fa5151;color:#fff;" onclick="deleteMessage('${m.id}')">删除</button>
+                        </div>
+                    </div>`;
+                });
+                list.innerHTML = html;
+            } catch (e) { console.error(e); }
+        }
+
+        async function loadUsers() {
+            try {
+                const res = await fetch('/api/admin/users');
+                const data = await res.json();
+                document.getElementById('statOnline').textContent = data.onlineCount;
+                document.getElementById('statBanned').textContent = data.users.filter(u => u.banned).length;
+                const list = document.getElementById('usersList');
+                if (data.users.length === 0) { list.innerHTML = '<div class="empty">暂无用户</div>'; return; }
+                // 在线用户排在前面
+                data.users.sort((a, b) => (b.online - a.online) || (b.lastSeen - a.lastSeen));
+                let html = '<table><thead><tr><th>名称</th><th>状态</th><th>封禁</th><th>最后在线</th><th>操作</th></tr></thead><tbody>';
+                data.users.forEach(u => {
+                    const lastSeen = u.lastSeen ? new Date(u.lastSeen).toLocaleString() : '未知';
+                    html += `<tr>
+                        <td><strong>${u.name}</strong></td>
+                        <td>${u.online ? '<span class="badge badge-online">在线</span>' : '<span class="badge badge-offline">离线</span>'}</td>
+                        <td>${u.banned ? '<span class="badge badge-banned">已封禁</span><br><small>' + (u.banInfo?.reason||'') + '</small>' : '正常'}</td>
+                        <td><small>${lastSeen}</small></td>
+                        <td>
+                            ${u.online ? `<button class="btn btn-rename" onclick="openRenameModal('${u.socketId}','${u.name.replace(/'/g,"\\'")}')">改名</button>` : ''}
+                            ${u.banned ? `<button class="btn btn-unban" onclick="openUnbanModal('${u.socketId}','${u.name.replace(/'/g,"\\'")}')">解封</button>` :
+                                `<button class="btn btn-ban" onclick="openBanModal('${u.socketId}','${u.name.replace(/'/g,"\\'")}')">封禁</button>`}
+                        </td>
+                    </tr>`;
+                });
+                html += '</tbody></table>';
+                list.innerHTML = html;
+            } catch (e) { console.error(e); }
+        }
+
+        async function loadWords() {
+            try {
+                const res = await fetch('/api/admin/banned-words');
+                const data = await res.json();
+                bannedWords = data.words || [];
+                renderWords();
+            } catch (e) { console.error(e); }
+        }
+
+        function renderWords() {
+            const box = document.getElementById('wordsBox');
+            if (bannedWords.length === 0) {
+                box.innerHTML = '<small style="color:#999;">暂无违禁词</small>';
+                return;
+            }
+            box.innerHTML = bannedWords.map((w, i) =>
+                `<span class="word-tag">${w}<span class="remove" onclick="removeWord(${i})">×</span></span>`
+            ).join('');
+        }
+
+        async function addWord() {
+            const input = document.getElementById('newWordInput');
+            const word = input.value.trim();
+            if (!word) return;
+            if (bannedWords.includes(word)) { alert('已存在'); return; }
+            bannedWords.push(word);
+            input.value = '';
+            await saveWords();
+            renderWords();
+        }
+
+        async function removeWord(index) {
+            bannedWords.splice(index, 1);
+            await saveWords();
+            renderWords();
+        }
+
+        async function saveWords() {
+            try {
+                await fetch('/api/admin/banned-words', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ words: bannedWords })
+                });
+            } catch (e) { console.error(e); }
+        }
+
+        function monitorRoom(roomId) {
+            window.open(`/room/${roomId}?ghost=1`, '_blank', 'width=800,height=600');
+        }
+
+        // 封禁
+        function openBanModal(socketId, name) {
+            currentBanSocketId = socketId;
+            document.getElementById('banUserInfo').textContent = `用户：${name}（${socketId}）`;
+            document.getElementById('banReason').value = '';
+            document.getElementById('banChat').checked = true;
+            document.getElementById('banMeeting').checked = false;
+            document.getElementById('banModal').classList.add('show');
+        }
+        function closeBanModal() { document.getElementById('banModal').classList.remove('show'); }
+        async function confirmBan() {
+            const reason = document.getElementById('banReason').value.trim();
+            const banChat = document.getElementById('banChat').checked;
+            const banMeeting = document.getElementById('banMeeting').checked;
+            if (!reason) { alert('请输入封禁理由'); return; }
+            try {
+                const res = await fetch('/api/admin/ban', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ socketId: currentBanSocketId, reason, banChat, banMeeting })
+                });
+                const data = await res.json();
+                if (data.success) { closeBanModal(); loadUsers(); alert('已封禁'); }
+                else { alert(data.error || '封禁失败'); }
+            } catch (e) { alert('网络错误'); }
+        }
+
+        // 解封
+        function openUnbanModal(socketId, name) {
+            currentUnbanSocketId = socketId;
+            document.getElementById('unbanUserInfo').textContent = `用户：${name}（${socketId}）`;
+            document.getElementById('unbanReason').value = '';
+            document.getElementById('unbanModal').classList.add('show');
+        }
+        function closeUnbanModal() { document.getElementById('unbanModal').classList.remove('show'); }
+        async function confirmUnban() {
+            const reason = document.getElementById('unbanReason').value.trim();
+            if (!reason) { alert('请输入解封理由'); return; }
+            try {
+                const res = await fetch('/api/admin/unban', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ socketId: currentUnbanSocketId, reason })
+                });
+                const data = await res.json();
+                if (data.success) { closeUnbanModal(); loadUsers(); alert('已解封'); }
+                else { alert(data.error || '解封失败'); }
+            } catch (e) { alert('网络错误'); }
+        }
+
+        // 改名
+        function openRenameModal(socketId, name) {
+            currentRenameData = { socketId, name };
+            document.getElementById('renameUserInfo').textContent = `当前名称：${name}`;
+            document.getElementById('newName').value = name;
+            document.getElementById('renameModal').classList.add('show');
+        }
+        function closeRenameModal() { document.getElementById('renameModal').classList.remove('show'); }
+        async function confirmRename() {
+            const newName = document.getElementById('newName').value.trim();
+            if (!newName) { alert('请输入新名称'); return; }
+            // 找到该用户所在的房间
+            try {
+                const res = await fetch('/api/admin/rooms');
+                const data = await res.json();
+                let roomId = null;
+                for (const r of data.rooms) {
+                    if (r.members.some(m => m.socketId === currentRenameData.socketId)) {
+                        roomId = r.roomId; break;
+                    }
+                }
+                if (!roomId) { alert('用户不在任何房间中'); return; }
+                const res2 = await fetch('/api/admin/rename', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ roomId, socketId: currentRenameData.socketId, newName })
+                });
+                const data2 = await res2.json();
+                if (data2.success) { closeRenameModal(); loadUsers(); alert('已改名'); }
+                else { alert(data2.error || '改名失败'); }
+            } catch (e) { alert('网络错误'); }
+        }
+
+        // 隐藏/恢复消息
+        async function hideMessage(msgId) {
+            try {
+                await fetch('/api/admin/hide-message', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ msgId })
+                });
+                loadMessages();
+            } catch (e) { alert('网络错误'); }
+        }
+        async function showMessage(msgId) {
+            try {
+                await fetch('/api/admin/show-message', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ msgId })
+                });
+                loadMessages();
+            } catch (e) { alert('网络错误'); }
+        }
+
+        // 删除单条消息
+        async function deleteMessage(msgId) {
+            if (!confirm('确定删除此消息？删除后所有用户都将看不到此消息。')) return;
+            try {
+                const res = await fetch('/api/admin/delete-message', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ msgId })
+                });
+                const data = await res.json();
+                if (data.error) { alert(data.error); return; }
+                loadMessages();
+            } catch (e) { alert('网络错误'); }
+        }
+
+        // 清空所有消息
+        async function clearAllMessages() {
+            if (!confirm('确定清空所有聊天消息？此操作不可恢复！')) return;
+            if (!confirm('再次确认：清空后所有用户的消息记录都将消失！')) return;
+            try {
+                const res = await fetch('/api/admin/clear-messages', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' }
+                });
+                const data = await res.json();
+                if (data.error) { alert(data.error); return; }
+                alert('已清空所有消息');
+                loadMessages();
+            } catch (e) { alert('网络错误'); }
+        }
+
+        // 初始化
+        loadRooms();
+        // 自动刷新统计
+        setInterval(() => {
+            const activePanel = document.querySelector('.panel.active').id;
+            if (activePanel === 'panel-rooms') loadRooms();
+            else if (activePanel === 'panel-messages') loadMessages();
+            else if (activePanel === 'panel-users') loadUsers();
+        }, 5000);
+    </script>
+</body>
+</html>

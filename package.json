@@ -1,0 +1,31 @@
+{
+  "name": "zoomlike-server",
+  "version": "1.0.0",
+  "description": "",
+  "main": "server.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "nodemon server.js"
+  },
+  "keywords": [
+    "webrtc",
+    "socket-io",
+    "video-conferencing",
+    "chat",
+    "android",
+    "nodejs"
+  ],
+  "author": "郭子琦 (zidian23345)",
+  "license": "MIT",
+  "dependencies": {
+    "ejs": "^3.1.5",
+    "express": "^4.17.1",
+    "peer": "^0.5.3",
+    "socket.io": "^3.0.0",
+    "uuid": "^8.3.1"
+  },
+  "devDependencies": {
+    "nodemon": "^2.0.6",
+    "selfsigned": "^5.5.0"
+  }
+}

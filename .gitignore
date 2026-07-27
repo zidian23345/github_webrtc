@@ -1,0 +1,72 @@
+# ===== Node.js =====
+/node_modules/
+/.pnp
+.pnp.js
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ===== 自签名证书（敏感，不要提交）=====
+/cert/*.pem
+/cert/*.crt
+/cert/*.key
+/cert/*.csr
+
+# ===== 运行时生成的文件 =====
+*.log
+server.log
+start_error.log
+start_output.log
+_build_log.txt
+
+# ===== 用户数据（运行时产生，不入库）=====
+# 注意：data/ 下的 *.json 已保留空结构作为示例
+# 如果不希望保留任何用户数据示例，可取消下行注释
+# /data/private-messages/*.json
+
+# ===== APK 构建产物 =====
+*.apk
+/public/downloads/*.apk
+/app-debug.apk
+
+# ===== 构建工具缓存 =====
+.gradle/
+.gradle_cache/
+.gradle_proj_cache/
+_gradle_cache/
+_gradle_link/
+_gradle_user/
+_android_build/
+_android_edit/
+build/
+.next/
+out/
+coverage/
+*.rdb
+
+# ===== Android Studio / IDEA =====
+_android_project/.gradle/
+_android_project/.idea/
+_android_project/local.properties
+_android_project/app/build/
+_android_project/app-debug.apk
+_android_project/build/
+*.iml
+.idea/
+
+# ===== VS Code =====
+.vscode/
+
+# ===== 操作系统 =====
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ===== 环境变量 =====
+.env
+.env.local
+.env.*.local
+
+# ===== Vercel =====
+.vercel

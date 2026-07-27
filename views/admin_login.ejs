@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>管理员登录</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+            background: linear-gradient(135deg, #1a1a1a 0%, #2a2a2a 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+        }
+        .login-card {
+            background: rgba(255, 255, 255, 0.08);
+            backdrop-filter: blur(20px);
+            padding: 40px 32px;
+            border-radius: 16px;
+            width: 100%;
+            max-width: 360px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        }
+        .login-title {
+            font-size: 22px;
+            text-align: center;
+            margin-bottom: 8px;
+        }
+        .login-subtitle {
+            font-size: 13px;
+            opacity: 0.6;
+            text-align: center;
+            margin-bottom: 32px;
+        }
+        .input-group { margin-bottom: 20px; }
+        .input-label {
+            font-size: 13px;
+            opacity: 0.8;
+            margin-bottom: 8px;
+            display: block;
+        }
+        .input-field {
+            width: 100%;
+            background: rgba(255, 255, 255, 0.95);
+            border: none;
+            padding: 14px 16px;
+            border-radius: 10px;
+            font-size: 16px;
+            color: #333;
+            outline: none;
+        }
+        .btn-login {
+            width: 100%;
+            background: #07c160;
+            color: #fff;
+            border: none;
+            padding: 14px;
+            border-radius: 10px;
+            font-size: 15px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .btn-login:active { background: #06ad56; }
+        .error-msg {
+            color: #fa5151;
+            font-size: 13px;
+            text-align: center;
+            margin-bottom: 16px;
+            padding: 10px;
+            background: rgba(250, 81, 81, 0.1);
+            border-radius: 8px;
+        }
+        .back-link {
+            text-align: center;
+            margin-top: 20px;
+        }
+        .back-link a {
+            color: rgba(255, 255, 255, 0.6);
+            text-decoration: none;
+            font-size: 13px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="login-card">
+        <div class="login-title">管理员后台</div>
+        <div class="login-subtitle">请输入管理员密码</div>
+
+        <% if (typeof error !== 'undefined' && error) { %>
+            <div class="error-msg"><%= error %></div>
+        <% } %>
+
+        <form method="POST" action="/zidian">
+            <div class="input-group">
+                <label class="input-label">密码</label>
+                <input type="password" name="password" class="input-field" autofocus required>
+            </div>
+            <button type="submit" class="btn-login">登录</button>
+        </form>
+
+        <div class="back-link">
+            <a href="/">返回首页</a>
+        </div>
+    </div>
+</body>
+
+</html>

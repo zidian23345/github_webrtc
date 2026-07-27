@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">WebRTC 通讯</string>
+    <string name="notification_channel_id">screen_capture_channel</string>
+    <string name="notification_channel_name">屏幕共享</string>
+    <string name="notification_title">正在共享屏幕</string>
+    <string name="notification_text">点击返回应用</string>
+</resources>

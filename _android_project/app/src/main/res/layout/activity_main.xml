@@ -1,0 +1,56 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#000000">
+
+    <!-- WebView 全屏显示（网页自带顶部导航栏）-->
+    <WebView
+        android:id="@+id/webView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:fitsSystemWindows="true" />
+
+    <!-- 屏幕共享按钮悬浮在底部居中，默认隐藏 -->
+    <Button
+        android:id="@+id/btnShareScreen"
+        android:layout_width="wrap_content"
+        android:layout_height="40dp"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="16dp"
+        android:text="开始共享屏幕"
+        android:textColor="@color/white"
+        android:backgroundTint="@color/purple_500"
+        android:paddingStart="24dp"
+        android:paddingEnd="24dp"
+        android:textSize="14sp"
+        android:visibility="gone" />
+
+    <!-- 设置按钮悬浮在右上角 -->
+    <ImageButton
+        android:id="@+id/btnSettings"
+        android:layout_width="36dp"
+        android:layout_height="36dp"
+        android:layout_gravity="top|end"
+        android:layout_marginTop="14dp"
+        android:layout_marginEnd="12dp"
+        android:background="@android:color/transparent"
+        android:src="@android:drawable/ic_menu_preferences"
+        android:scaleType="centerInside"
+        android:alpha="0.6"
+        android:contentDescription="设置" />
+
+    <!-- 连接状态指示器（右上角小圆点，通话页面时显示）-->
+    <TextView
+        android:id="@+id/connectionStatus"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text=""
+        android:textColor="@color/red_500"
+        android:textSize="10sp"
+        android:layout_gravity="top|end"
+        android:layout_marginTop="18dp"
+        android:layout_marginEnd="52dp"
+        android:alpha="0.6" />
+
+</FrameLayout>

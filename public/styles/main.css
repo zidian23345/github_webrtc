@@ -1,0 +1,313 @@
+body {
+  margin: 0;
+  padding: 0;
+}
+
+#video-grid {
+  display: flex;
+  justify-content: center;
+}
+
+#video-grid.smaller {
+  display: flex;
+  justify-content: top;
+  align-items: flex-start;
+}
+
+#video-grid.smaller > video {
+  height: 100px;
+  width: 200px;
+}
+
+video {
+  height: 300px;
+  width: 400px;
+}
+
+.main {
+  height: 100vh;
+  display: flex;
+}
+
+.main__left {
+  flex-basis: 80%;
+  border-right: 1px solid #000;
+  display: flex;
+  flex-direction: column;
+}
+
+.main__videos {
+  flex-grow: 1;
+  background-color: #eee;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.main__videos.has-share {
+  flex-direction: column;
+  align-items: start;
+}
+
+.main__right {
+  padding-top: 0;
+  padding-right: 0;
+  padding-bottom: 0;
+  padding-left: 1rem;
+  flex-basis: 20%;
+  display: flex;
+  flex-direction: column;
+  background-color: #242424;
+  color: #f5f5f5;
+}
+
+.main__controls {
+  display: flex;
+  background-color: #242424;
+  color: #fff;
+}
+.main__controls__block {
+  display: flex;
+  font-size: 12px;
+}
+
+.main__controls__block:nth-child(2) {
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.main__controls__block:last-child {
+  color: #cc3833;
+}
+
+.main__controls__button {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  cursor: pointer;
+  text-align: center;
+  height: 4rem;
+  padding: 0 1rem;
+}
+
+.main__controls__button:hover {
+  background-color: #414142;
+}
+
+.main__chat_window {
+  overflow-y: scroll;
+  flex-grow: 1;
+}
+
+.main_message_container {
+  padding: 22px 12px;
+  display: flex;
+}
+
+.main__header {
+  text-align: center;
+}
+
+.main__header > h6 {
+  margin: 0;
+}
+
+.main_message_container input {
+  flex-grow: 1;
+  background-color: transparent;
+  border: none;
+  color: #f5f5f5;
+  height: 40px;
+}
+
+.main_message_container input:focus {
+  transition: ease-in-out, width 0.35s ease-in-out;
+  outline: none;
+  background-color: #4a4747;
+  padding-left: 1rem;
+}
+
+.messages {
+  list-style: none;
+  padding-left: 0;
+  padding-right: 1rem;
+}
+
+.message {
+  margin: 2rem 0;
+  background-color: #545050;
+  padding: 1rem;
+}
+
+#sender {
+  background-color: #b5aeae !important;
+}
+
+.unmute {
+  color: #cc3833;
+}
+
+#screen-share.visible {
+  background-color: #cc3833;
+  flex-grow: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+}
+
+#screen-share.visible video {
+  height: 80vh;
+  width: 100%;
+}
+
+/* ===== 手机端适配 ===== */
+
+/* 防止 iOS Safari 双击缩放 */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+video {
+  -webkit-object-fit: cover;
+  object-fit: cover;
+}
+
+/* 平板及以下（< 992px） */
+@media (max-width: 991px) {
+  .main__left {
+    flex-basis: 100%;
+  }
+
+  .main__right {
+    display: none;
+    position: fixed;
+    top: 0;
+    right: 0;
+    width: 80%;
+    max-width: 320px;
+    height: 100vh;
+    z-index: 1000;
+    box-shadow: -2px 0 10px rgba(0, 0, 0, 0.5);
+  }
+
+  .main__right.show {
+    display: flex;
+  }
+
+  video {
+    height: 200px;
+    width: 100%;
+    max-width: 300px;
+  }
+}
+
+/* 手机（< 768px） */
+@media (max-width: 767px) {
+  .main {
+    flex-direction: column;
+  }
+
+  .main__left {
+    flex-basis: 100%;
+    border-right: none;
+  }
+
+  .main__videos {
+    padding: 8px;
+  }
+
+  /* 视频网格：单个视频铺满，多个视频自动换行 */
+  #video-grid {
+    flex-wrap: wrap;
+    align-content: center;
+  }
+
+  #video-grid > video {
+    height: auto;
+    width: 100%;
+    max-width: 100%;
+    min-height: 120px;
+  }
+
+  /* 共享屏幕时小视频 */
+  #video-grid.smaller > video {
+    height: 80px;
+    width: 110px;
+  }
+
+  /* 控制栏：按钮缩小，可横向滚动 */
+  .main__controls {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 4px 0;
+  }
+
+  .main__controls__block {
+    font-size: 10px;
+    flex-shrink: 0;
+  }
+
+  .main__controls__block:nth-child(2) {
+    margin-left: 0;
+    margin-right: 0;
+  }
+
+  .main__controls__button {
+    height: 3.2rem;
+    padding: 0 0.6rem;
+    min-width: 3rem;
+  }
+
+  .main__controls__button i {
+    font-size: 1.1rem;
+  }
+
+  .main__controls__button span {
+    font-size: 9px;
+    display: block;
+    margin-top: 2px;
+  }
+
+  /* 共享屏幕视频铺满 */
+  #screen-share.visible video {
+    height: 60vh;
+  }
+
+  /* 聊天浮层覆盖大部分屏幕 */
+  .main__right {
+    width: 90%;
+    max-width: none;
+  }
+}
+
+/* 超小屏幕（< 480px） */
+@media (max-width: 479px) {
+  #video-grid > video {
+    min-height: 100px;
+  }
+
+  .main__controls__button {
+    height: 3rem;
+    padding: 0 0.5rem;
+    min-width: 2.6rem;
+  }
+
+  .main__controls__button i {
+    font-size: 1rem;
+  }
+
+  .main__controls__button span {
+    font-size: 8px;
+  }
+}
+
+/* 横屏模式（手机横屏） */
+@media (max-width: 991px) and (orientation: landscape) {
+  #video-grid > video {
+    height: 180px;
+    width: auto;
+    max-width: 240px;
+  }
+}

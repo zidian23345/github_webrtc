@@ -1,0 +1,1481 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>视频会议</title>
+    <link rel="stylesheet" href="/styles/fontawesome/css/font-awesome.min.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+            background: #1a1a1a;
+            color: #fff;
+            user-select: none;
+        }
+
+        /* ===== 主容器 ===== */
+        .meeting-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            background: #000;
+            overflow: hidden;
+        }
+
+        /* ===== 主视频区（别人的画面）===== */
+        .main-video {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .main-video video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        /* ===== 自己的画面（左上角小窗）===== */
+        .self-video {
+            position: absolute;
+            top: 50px;
+            left: 12px;
+            width: 90px;
+            height: 130px;
+            background: #222;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+            z-index: 10;
+            border: 2px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .self-video video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1); /* 镜像翻转，更自然 */
+        }
+
+        /* 小窗可拖动 */
+        .self-video.draggable {
+            cursor: move;
+        }
+
+        /* ===== 顶部信息栏 ===== */
+        .top-bar {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            padding: 12px 16px;
+            padding-top: 14px;
+            background: linear-gradient(to bottom, rgba(0, 0, 0, 0.7), transparent);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            z-index: 20;
+        }
+
+        .top-bar-left {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .back-btn {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: rgba(0, 0, 0, 0.4);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            color: #fff;
+            font-size: 16px;
+        }
+
+        .meeting-info {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .meeting-title {
+            font-size: 15px;
+            font-weight: 500;
+            color: #fff;
+        }
+
+        .meeting-code {
+            font-size: 12px;
+            color: rgba(255, 255, 255, 0.7);
+            margin-top: 2px;
+        }
+
+        .meeting-code .copy-icon {
+            margin-left: 4px;
+            cursor: pointer;
+        }
+
+        .top-bar-right {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .member-count {
+            background: rgba(0, 0, 0, 0.4);
+            padding: 6px 12px;
+            border-radius: 16px;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            cursor: pointer;
+        }
+
+        /* ===== 等待界面 ===== */
+        .waiting-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(135deg, #1a1a1a 0%, #2a2a2a 100%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 30;
+        }
+
+        .waiting-icon {
+            width: 100px;
+            height: 100px;
+            border: 3px solid rgba(7, 193, 96, 0.2);
+            border-top-color: #07c160;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 30px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .waiting-text {
+            font-size: 18px;
+            color: #fff;
+            margin-bottom: 8px;
+        }
+
+        .waiting-subtext {
+            font-size: 14px;
+            color: rgba(255, 255, 255, 0.6);
+            margin-bottom: 40px;
+        }
+
+        .waiting-code {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 16px 32px;
+            border-radius: 12px;
+            margin-bottom: 30px;
+        }
+
+        .waiting-code-label {
+            font-size: 12px;
+            color: rgba(255, 255, 255, 0.6);
+            text-align: center;
+            margin-bottom: 6px;
+        }
+
+        .waiting-code-value {
+            font-size: 36px;
+            font-weight: 600;
+            color: #07c160;
+            letter-spacing: 6px;
+            text-align: center;
+        }
+
+        .waiting-share-btn {
+            background: #07c160;
+            color: #fff;
+            border: none;
+            padding: 12px 32px;
+            border-radius: 24px;
+            font-size: 15px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .waiting-share-btn:active {
+            transform: scale(0.96);
+        }
+
+        /* ===== 底部控制栏 ===== */
+        .controls-bar {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            padding: 16px 20px;
+            padding-bottom: 30px;
+            background: linear-gradient(to top, rgba(0, 0, 0, 0.8), transparent);
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            z-index: 20;
+        }
+
+        .control-btn {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 6px;
+            cursor: pointer;
+            padding: 8px;
+            border-radius: 12px;
+            transition: background 0.2s;
+        }
+
+        .control-btn:active {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .control-icon {
+            width: 54px;
+            height: 54px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.2);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 22px;
+            color: #fff;
+            transition: all 0.2s;
+        }
+
+        .control-btn.active .control-icon {
+            background: #fff;
+            color: #333;
+        }
+
+        .control-btn.off .control-icon {
+            background: #fa5151;
+            color: #fff;
+        }
+
+        .control-label {
+            font-size: 11px;
+            color: rgba(255, 255, 255, 0.85);
+        }
+
+        .control-btn.hangup .control-icon {
+            background: #fa5151;
+            transform: rotate(135deg);
+        }
+
+        /* ===== 成员列表浮层 ===== */
+        .members-panel {
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 80%;
+            max-width: 360px;
+            height: 100%;
+            background: #1a1a1a;
+            z-index: 50;
+            transform: translateX(100%);
+            transition: transform 0.3s ease;
+            display: flex;
+            flex-direction: column;
+            box-shadow: -4px 0 20px rgba(0, 0, 0, 0.5);
+        }
+
+        .members-panel.show {
+            transform: translateX(0);
+        }
+
+        .members-header {
+            padding: 50px 20px 16px;
+            border-bottom: 1px solid #333;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .members-title {
+            font-size: 16px;
+            font-weight: 500;
+        }
+
+        .members-close {
+            font-size: 22px;
+            cursor: pointer;
+            color: #999;
+            padding: 0 8px;
+        }
+
+        .members-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 8px 0;
+        }
+
+        .member-item {
+            padding: 12px 20px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .member-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: #07c160;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+            font-size: 16px;
+            flex-shrink: 0;
+        }
+
+        .member-info {
+            flex: 1;
+        }
+
+        .member-name {
+            font-size: 14px;
+            color: #fff;
+        }
+
+        .member-tag {
+            font-size: 11px;
+            color: #07c160;
+            margin-top: 2px;
+        }
+
+        .member-tag.you {
+            color: #999;
+        }
+
+        .kick-btn {
+            background: transparent;
+            border: 1px solid #fa5151;
+            color: #fa5151;
+            padding: 5px 12px;
+            border-radius: 14px;
+            font-size: 12px;
+            cursor: pointer;
+        }
+
+        .kick-btn:active {
+            background: #fa5151;
+            color: #fff;
+        }
+
+        /* ===== 屏幕共享显示 ===== */
+        .screen-share-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #000;
+            display: none;
+            z-index: 15;
+        }
+
+        .screen-share-container.show {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .screen-share-container img,
+        .screen-share-container video {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+        }
+
+        .screen-share-label {
+            position: absolute;
+            top: 60px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.7);
+            color: #fff;
+            padding: 6px 14px;
+            border-radius: 16px;
+            font-size: 13px;
+            z-index: 25;
+        }
+
+        /* ===== Toast 提示 ===== */
+        .toast {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.85);
+            color: #fff;
+            padding: 12px 20px;
+            border-radius: 8px;
+            font-size: 14px;
+            z-index: 1000;
+            opacity: 0;
+            transition: opacity 0.3s;
+            pointer-events: none;
+            max-width: 80%;
+            text-align: center;
+        }
+
+        .toast.show {
+            opacity: 1;
+        }
+
+        .toast.error {
+            background: #fa5151;
+        }
+
+        /* ===== 手机端适配 ===== */
+        /* 平板及以下 */
+        @media (max-width: 768px) {
+            .self-video {
+                width: 85px;
+                height: 120px;
+                top: 55px;
+                left: 10px;
+            }
+
+            .control-icon {
+                width: 50px;
+                height: 50px;
+                font-size: 20px;
+            }
+
+            .control-label {
+                font-size: 10px;
+            }
+
+            .meeting-title {
+                font-size: 14px;
+            }
+
+            .meeting-code {
+                font-size: 11px;
+            }
+
+            .waiting-code-value {
+                font-size: 32px;
+            }
+
+            .controls-bar {
+                padding: 12px 12px;
+                padding-bottom: 20px;
+            }
+
+            .control-btn {
+                padding: 6px 4px;
+            }
+        }
+
+        /* 手机（< 480px） */
+        @media (max-width: 480px) {
+            .self-video {
+                width: 75px;
+                height: 105px;
+                top: 50px;
+                left: 8px;
+                border-radius: 8px;
+                border-width: 1.5px;
+            }
+
+            .control-icon {
+                width: 44px;
+                height: 44px;
+                font-size: 17px;
+            }
+
+            .control-label {
+                font-size: 9px;
+            }
+
+            .top-bar {
+                padding: 10px 12px;
+                padding-top: 12px;
+            }
+
+            .back-btn {
+                width: 28px;
+                height: 28px;
+                font-size: 14px;
+            }
+
+            .meeting-title {
+                font-size: 13px;
+            }
+
+            .meeting-code {
+                font-size: 10px;
+            }
+
+            .member-count {
+                padding: 5px 10px;
+                font-size: 12px;
+            }
+
+            .controls-bar {
+                padding: 10px 8px;
+                padding-bottom: 16px;
+                justify-content: space-around;
+                gap: 2px;
+            }
+
+            .control-btn {
+                padding: 4px 2px;
+                gap: 4px;
+            }
+
+            .waiting-icon {
+                width: 80px;
+                height: 80px;
+                border-width: 2px;
+                margin-bottom: 24px;
+            }
+
+            .waiting-text {
+                font-size: 16px;
+            }
+
+            .waiting-subtext {
+                font-size: 13px;
+                margin-bottom: 30px;
+            }
+
+            .waiting-code {
+                padding: 14px 24px;
+                margin-bottom: 24px;
+            }
+
+            .waiting-code-label {
+                font-size: 11px;
+            }
+
+            .waiting-code-value {
+                font-size: 28px;
+                letter-spacing: 4px;
+            }
+
+            .waiting-share-btn {
+                padding: 10px 26px;
+                font-size: 14px;
+            }
+
+            .members-panel {
+                width: 88%;
+            }
+
+            .members-header {
+                padding: 40px 16px 14px;
+            }
+
+            .member-item {
+                padding: 10px 16px;
+            }
+
+            .member-avatar {
+                width: 36px;
+                height: 36px;
+                font-size: 14px;
+            }
+
+            .member-name {
+                font-size: 13px;
+            }
+        }
+
+        /* 超小屏幕（< 360px） */
+        @media (max-width: 359px) {
+            .self-video {
+                width: 65px;
+                height: 92px;
+                top: 48px;
+                left: 6px;
+            }
+
+            .control-icon {
+                width: 40px;
+                height: 40px;
+                font-size: 15px;
+            }
+
+            .control-label {
+                font-size: 8px;
+            }
+
+            .controls-bar {
+                padding: 8px 4px;
+                padding-bottom: 12px;
+            }
+
+            .waiting-code-value {
+                font-size: 24px;
+                letter-spacing: 3px;
+            }
+
+            .waiting-code {
+                padding: 12px 18px;
+            }
+        }
+
+        /* 横屏适配 */
+        @media (orientation: landscape) and (max-width: 991px) {
+            .self-video {
+                width: 110px;
+                height: 80px;
+                top: 50px;
+            }
+
+            .controls-bar {
+                padding: 8px 20px;
+                padding-bottom: 8px;
+            }
+
+            .top-bar {
+                padding: 8px 16px;
+            }
+
+            .waiting-icon {
+                width: 60px;
+                height: 60px;
+                margin-bottom: 16px;
+            }
+
+            .waiting-text {
+                font-size: 15px;
+                margin-bottom: 4px;
+            }
+
+            .waiting-subtext {
+                margin-bottom: 20px;
+            }
+
+            .waiting-code {
+                padding: 12px 24px;
+                margin-bottom: 20px;
+            }
+        }
+
+        /* iPhone 刘海屏安全区域 */
+        @supports (padding: env(safe-area-inset-top)) {
+            .top-bar {
+                padding-top: calc(12px + env(safe-area-inset-top));
+            }
+
+            .controls-bar {
+                padding-bottom: calc(20px + env(safe-area-inset-bottom));
+            }
+
+            .members-header {
+                padding-top: calc(50px + env(safe-area-inset-top));
+            }
+        }
+
+        /* 防止 iOS Safari 双击缩放 */
+        body {
+            touch-action: manipulation;
+        }
+
+        /* 视频元素防止 iOS 全屏播放 */
+        video {
+            -webkit-media-controls-internal-media-controls-container {
+                display: none !important;
+            }
+        }
+
+        /* 防止长按选择 */
+        .control-btn, .back-btn, .member-count, .waiting-share-btn,
+        .member-item, .kick-btn, .members-close, .copy-icon {
+            -webkit-user-select: none;
+            user-select: none;
+            -webkit-touch-callout: none;
+        }
+
+        /* ===== 语音通话头像界面（类似微信语音通话）===== */
+        .voice-call-view {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(160deg, #1e1e2a 0%, #2a2a3e 50%, #1a1a2a 100%);
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 12;
+        }
+        .voice-call-view.show {
+            display: flex;
+        }
+        .voice-call-avatar {
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            background: #5765ec;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+            font-size: 48px;
+            font-weight: 500;
+            overflow: hidden;
+            margin-bottom: 24px;
+            box-shadow: 0 8px 32px rgba(87, 101, 236, 0.4);
+            border: 3px solid rgba(255, 255, 255, 0.15);
+            animation: voiceAvatarPulse 2s ease-in-out infinite;
+        }
+        .voice-call-avatar img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        @keyframes voiceAvatarPulse {
+            0%, 100% { transform: scale(1); box-shadow: 0 8px 32px rgba(87, 101, 236, 0.4); }
+            50% { transform: scale(1.06); box-shadow: 0 12px 40px rgba(87, 101, 236, 0.6); }
+        }
+        .voice-call-name {
+            font-size: 20px;
+            font-weight: 500;
+            color: #fff;
+            margin-bottom: 8px;
+        }
+        .voice-call-duration {
+            font-size: 14px;
+            color: rgba(255, 255, 255, 0.6);
+            font-variant-numeric: tabular-nums;
+        }
+        .voice-call-status {
+            font-size: 13px;
+            color: #07c160;
+            margin-top: 6px;
+        }
+
+        /* ===== 聊天 overlay（通话时返回聊天，不跳转页面） ===== */
+        .chat-overlay {
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background: #ededed; z-index: 500; display: none;
+            flex-direction: column;
+        }
+        .chat-overlay.show { display: flex; }
+        .chat-overlay-header {
+            height: 56px; background: #07c160; color: #fff;
+            display: flex; align-items: center; padding: 0 12px;
+            padding-top: env(safe-area-inset-top); gap: 12px;
+        }
+        .chat-overlay-back { font-size: 22px; cursor: pointer; padding: 6px; }
+        .chat-overlay-title {
+            flex: 1; display: flex; align-items: center; gap: 6px;
+            font-size: 14px; font-weight: 500;
+        }
+        .chat-overlay-call-icon { font-size: 14px; }
+        .chat-overlay-time { font-variant-numeric: tabular-nums; opacity: 0.9; }
+        .chat-overlay-hangup {
+            width: 36px; height: 36px; border-radius: 50%;
+            background: #fa5151; display: flex; align-items: center;
+            justify-content: center; font-size: 16px; cursor: pointer;
+        }
+        .chat-overlay-list {
+            flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch;
+            padding: 12px 0;
+        }
+        .chat-overlay-list::-webkit-scrollbar { width: 0; }
+        .chat-overlay-msg { display: flex; margin: 8px 12px; gap: 8px; align-items: flex-start; }
+        .chat-overlay-msg.self { flex-direction: row-reverse; }
+        .chat-overlay-msg-avatar {
+            width: 36px; height: 36px; border-radius: 6px; flex-shrink: 0;
+            display: flex; align-items: center; justify-content: center;
+            color: #fff; font-size: 14px; font-weight: 500;
+        }
+        .chat-overlay-msg-content { max-width: 70%; display: flex; flex-direction: column; }
+        .chat-overlay-msg.self .chat-overlay-msg-content { align-items: flex-end; }
+        .chat-overlay-msg-name { font-size: 11px; color: #888; margin-bottom: 3px; padding: 0 4px; }
+        .chat-overlay-msg-bubble {
+            background: #fff; padding: 10px 12px; border-radius: 6px;
+            font-size: 15px; color: #181818; word-break: break-word; line-height: 1.4;
+        }
+        .chat-overlay-msg.self .chat-overlay-msg-bubble { background: #95ec69; }
+        .chat-overlay-msg-time { font-size: 10px; color: #999; margin-top: 3px; padding: 0 4px; }
+        .chat-overlay-input-bar {
+            height: 60px; background: #f7f7f7; border-top: 1px solid #d9d9d9;
+            display: flex; align-items: center; padding: 0 8px; gap: 8px;
+            padding-bottom: env(safe-area-inset-bottom);
+        }
+        .chat-overlay-input-bar input {
+            flex: 1; height: 40px; border: 1px solid #d9d9d9; border-radius: 6px;
+            padding: 0 10px; font-size: 16px; background: #fff; outline: none;
+        }
+        .chat-overlay-input-bar button {
+            background: #07c160; color: #fff; border: none; padding: 0 16px;
+            height: 40px; border-radius: 6px; font-size: 15px; cursor: pointer;
+        }
+    </style>
+</head>
+
+<body>
+    <input hidden type="text" id="roomId" value="<%= roomId %>">
+
+    <div class="meeting-container">
+
+        <!-- 主视频区（别人的画面）-->
+        <div class="main-video" id="mainVideo">
+            <!-- 其他参与者的视频会动态添加到这里 -->
+        </div>
+
+        <!-- 自己的画面（左上角小窗）-->
+        <div class="self-video" id="selfVideo">
+            <!-- 自己的视频会动态添加到这里 -->
+        </div>
+
+        <!-- 语音通话头像界面（语音通话时显示，类似微信语音通话）-->
+        <div class="voice-call-view" id="voiceCallView">
+            <div class="voice-call-avatar" id="voiceCallAvatar">?</div>
+            <div class="voice-call-name" id="voiceCallName">对方</div>
+            <div class="voice-call-duration" id="voiceCallDuration">00:00</div>
+            <div class="voice-call-status" id="voiceCallStatus">通话中</div>
+        </div>
+
+        <!-- 屏幕共享显示区 -->
+        <div class="screen-share-container" id="screenShareContainer">
+            <div class="screen-share-label" id="screenShareLabel">📱 屏幕共享中</div>
+        </div>
+
+        <!-- 等待界面（创建会议后等待其他人加入）-->
+        <div class="waiting-screen" id="waitingScreen">
+            <div class="waiting-icon"></div>
+            <div class="waiting-text">等待其他人加入...</div>
+            <div class="waiting-subtext">分享会议号邀请他人</div>
+            <div class="waiting-code">
+                <div class="waiting-code-label">会议号</div>
+                <div class="waiting-code-value" id="waitingCode"><%= roomId %></div>
+            </div>
+            <button class="waiting-share-btn" onclick="copyMeetingLink()">
+                <i class="fa fa-share-alt"></i>
+                复制邀请链接
+            </button>
+        </div>
+
+        <!-- 顶部信息栏 -->
+        <div class="top-bar" id="topBar" style="display: none;">
+            <div class="top-bar-left">
+                <div class="back-btn" onclick="backToChat()" title="返回聊天（通话保持）">
+                    <i class="fa fa-chevron-left"></i>
+                </div>
+                <div class="meeting-info">
+                    <div class="meeting-title">视频会议</div>
+                    <div class="meeting-code">
+                        会议号：<%= roomId %>
+                        <i class="fa fa-copy copy-icon" onclick="copyMeetingCode()"></i>
+                    </div>
+                </div>
+            </div>
+            <div class="top-bar-right">
+                <div class="member-count" onclick="showMembers()">
+                    <i class="fa fa-users"></i>
+                    <span id="memberCount">1</span>
+                </div>
+                <div class="back-btn" onclick="backToChat()" title="返回聊天" style="margin-left:8px;">
+                    <i class="fa fa-comment-o"></i>
+                </div>
+            </div>
+        </div>
+
+        <!-- 底部控制栏 -->
+        <div class="controls-bar" id="controlsBar" style="display: none;">
+            <div class="control-btn" id="muteToggle" onclick="toggleMute()">
+                <div class="control-icon">
+                    <i class="fa fa-microphone"></i>
+                </div>
+                <div class="control-label">静音</div>
+            </div>
+            <div class="control-btn" id="videoToggle" onclick="toggleVideo()">
+                <div class="control-icon">
+                    <i class="fa fa-video-camera"></i>
+                </div>
+                <div class="control-label">视频</div>
+            </div>
+            <div class="control-btn" id="switchCameraToggle" onclick="switchCamera()">
+                <div class="control-icon">
+                    <i class="fa fa-refresh"></i>
+                </div>
+                <div class="control-label">翻转</div>
+            </div>
+            <div class="control-btn" id="shareScreenToggle" onclick="toggleScreenShare()">
+                <div class="control-icon">
+                    <i class="fa fa-desktop"></i>
+                </div>
+                <div class="control-label">共享</div>
+            </div>
+            <div class="control-btn" onclick="showMembers()">
+                <div class="control-icon">
+                    <i class="fa fa-users"></i>
+                </div>
+                <div class="control-label">成员</div>
+            </div>
+            <div class="control-btn hangup" onclick="leaveMeeting()">
+                <div class="control-icon">
+                    <i class="fa fa-phone"></i>
+                </div>
+                <div class="control-label">挂断</div>
+            </div>
+        </div>
+
+        <!-- 成员列表浮层 -->
+        <div class="members-panel" id="membersPanel">
+            <div class="members-header">
+                <div class="members-title">成员 (<span id="membersCount">1</span>)</div>
+                <div class="members-close" onclick="hideMembers()">&times;</div>
+            </div>
+            <div class="members-list" id="membersList">
+                <!-- 成员会动态添加 -->
+            </div>
+        </div>
+
+    </div>
+
+    <!-- 聊天 overlay（通话时返回聊天，不跳转页面，保持通话） -->
+    <div class="chat-overlay" id="chatOverlay">
+        <div class="chat-overlay-header">
+            <div class="chat-overlay-back" onclick="hideChatOverlay()">
+                <i class="fa fa-chevron-left"></i>
+            </div>
+            <div class="chat-overlay-title">
+                <i class="fa fa-phone chat-overlay-call-icon"></i>
+                <span id="chatOverlayCallStatus">正在和 xx 通话中</span>
+                <span id="chatOverlayCallTime" class="chat-overlay-time">00:00</span>
+            </div>
+            <div class="chat-overlay-hangup" onclick="leaveMeeting()">
+                <i class="fa fa-phone"></i>
+            </div>
+        </div>
+        <div class="chat-overlay-list" id="chatOverlayList"></div>
+        <div class="chat-overlay-input-bar">
+            <input type="text" id="chatOverlayInput" placeholder="说点什么..." onkeypress="if(event.key==='Enter')sendChatOverlayMsg()">
+            <button onclick="sendChatOverlayMsg()">发送</button>
+        </div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="/scripts/webrtc-room.js"></script>
+    <script>
+        // ===== 以下旧的内联 script 已被 webrtc-room.js 替代，保留注释避免语法错误 =====
+        /* DEPRECATED
+
+        // ===== 全局状态 =====
+        let isHost = false;
+        let currentMembers = [];
+        let myPeerUserId = null;
+        let myUserName = utils.USER_NAME;
+        const isGhostMode = utils.IS_GHOST;
+
+        // ===== UI 辅助函数 =====
+        function showToast(msg, type) {
+            const toast = document.getElementById('toast');
+            toast.textContent = msg;
+            toast.className = 'toast show' + (type === 'error' ? ' error' : '');
+            setTimeout(() => { toast.className = 'toast'; }, 2500);
+        }
+
+        function copyMeetingCode() {
+            const code = '<%= roomId %>';
+            if (navigator.clipboard) {
+                navigator.clipboard.writeText(code).then(() => {
+                    showToast('会议号已复制');
+                });
+            } else {
+                // 兼容旧浏览器
+                const ta = document.createElement('textarea');
+                ta.value = code;
+                document.body.appendChild(ta);
+                ta.select();
+                document.execCommand('copy');
+                document.body.removeChild(ta);
+                showToast('会议号已复制');
+            }
+        }
+
+        function copyMeetingLink() {
+            const link = window.location.href;
+            if (navigator.clipboard) {
+                navigator.clipboard.writeText(link).then(() => {
+                    showToast('邀请链接已复制');
+                });
+            }
+        }
+
+        // ===== 等待界面控制 =====
+        function hideWaitingScreen() {
+            document.getElementById('waitingScreen').style.display = 'none';
+            document.getElementById('topBar').style.display = 'flex';
+            document.getElementById('controlsBar').style.display = 'flex';
+        }
+
+        function showWaitingScreen() {
+            document.getElementById('waitingScreen').style.display = 'flex';
+            document.getElementById('topBar').style.display = 'none';
+            document.getElementById('controlsBar').style.display = 'none';
+        }
+
+        // ===== 成员管理 =====
+        function showMembers() {
+            document.getElementById('membersPanel').classList.add('show');
+            renderMembers();
+        }
+
+        function hideMembers() {
+            document.getElementById('membersPanel').classList.remove('show');
+        }
+
+        function renderMembers() {
+            const list = document.getElementById('membersList');
+            list.innerHTML = '';
+            document.getElementById('membersCount').textContent = currentMembers.length;
+
+            currentMembers.forEach(m => {
+                const item = document.createElement('div');
+                item.className = 'member-item';
+
+                // 用 socketId 和 peerUserId 双重判断
+                const mySocketId = utils.socket.id;
+                const isMe = m.peerUserId === myPeerUserId || m.socketId === mySocketId;
+                const avatarLetter = (m.name || '?').charAt(0);
+
+                let kickBtn = '';
+                // 只有房主可以移除其他人，且不能移除自己
+                if (isHost && !isMe && !m.isNative) {
+                    kickBtn = `<button class="kick-btn" onclick="kickMember('${m.peerUserId}')">移除</button>`;
+                }
+
+                let tag = '';
+                if (m.isHost) tag = '<div class="member-tag">房主</div>';
+                else if (isMe) tag = '<div class="member-tag you">我</div>';
+
+                item.innerHTML = `
+                    <div class="member-avatar">${avatarLetter}</div>
+                    <div class="member-info">
+                        <div class="member-name">${m.name}${isMe ? ' (我)' : ''}</div>
+                        ${tag}
+                    </div>
+                    ${kickBtn}
+                `;
+                list.appendChild(item);
+            });
+        }
+
+        function kickMember(peerUserId) {
+            if (!confirm('确定要移除该成员吗？')) return;
+            utils.socket.emit('kick-member', {
+                roomID: utils.ROOM_ID,
+                peerUserId: peerUserId
+            });
+        }
+
+        // 监听被移除事件
+        utils.socket.on('kicked', (data) => {
+            alert(data.reason);
+            window.location.href = '/';
+        });
+
+        utils.socket.on('error-message', (data) => {
+            showToast(data.message, 'error');
+        });
+
+        // 监听成员列表更新
+        utils.socket.on('members-update', (data) => {
+            currentMembers = data.members;
+            document.getElementById('memberCount').textContent = data.memberCount;
+            if (document.getElementById('membersPanel').classList.contains('show')) {
+                renderMembers();
+            }
+
+            // 调试日志
+            console.log('[members-update] 成员数:', data.memberCount,
+                       '我的peerUserId:', myPeerUserId,
+                       '成员列表:', data.members.map(m => m.peerUserId));
+
+            // 判断是否有其他成员（用 socket.id 和 peerUserId 双重判断）
+            const mySocketId = utils.socket.id;
+            const otherMembers = data.members.filter(m => {
+                // 排除自己：通过 peerUserId 或 socketId 判断
+                return m.peerUserId !== myPeerUserId && m.socketId !== mySocketId;
+            });
+
+            console.log('[members-update] 其他成员数:', otherMembers.length);
+
+            if (otherMembers.length > 0) {
+                hideWaitingScreen();
+            } else {
+                showWaitingScreen();
+            }
+        });
+
+        // 监听房主状态
+        utils.socket.on('host-status', (data) => {
+            isHost = data.isHost;
+            if (isHost) {
+                showToast('你已成为房主');
+            }
+        });
+
+        // 监听被管理员改名
+        utils.socket.on('name-changed', (data) => {
+            myUserName = data.newName;
+            sessionStorage.setItem('meetingUserName', data.newName);
+            showToast(`你的名称已被管理员修改为: ${data.newName}`);
+            // 更新界面显示
+            if (document.getElementById('membersPanel').classList.contains('show')) {
+                renderMembers();
+            }
+        });
+
+        // ===== 隐身监控模式特殊处理 =====
+        if (isGhostMode) {
+            // 监控模式：收到房间成员列表后，主动 call 所有成员（但不显示自己）
+            utils.socket.on('ghost-members', (data) => {
+                console.log('[监控模式] 收到房间成员列表:', data.members.length, '人');
+                // 等待 peer 连接就绪后主动 call
+                const tryCall = () => {
+                    if (window.peerReady && allCalls) {
+                        data.members.forEach(m => {
+                            if (!m.isNative && m.peerUserId && !allCalls[m.peerUserId]) {
+                                console.log('[监控模式] 主动 call:', m.peerUserId, m.name);
+                                if (window.connectToNewUserForGhost) {
+                                    window.connectToNewUserForGhost(m.peerUserId);
+                                }
+                            }
+                        });
+                    } else {
+                        setTimeout(tryCall, 500);
+                    }
+                };
+                tryCall();
+            });
+
+            // 监控模式：隐藏自己的视频小窗，不显示等待界面
+            document.getElementById('selfVideo').style.display = 'none';
+            document.getElementById('waitingScreen').style.display = 'none';
+            document.getElementById('topBar').style.display = 'flex';
+            document.getElementById('controlsBar').style.display = 'flex';
+
+            // 在顶部显示监控标识
+            const topBar = document.getElementById('topBar');
+            const ghostTag = document.createElement('div');
+            ghostTag.style.cssText = 'background:#722ed1;color:#fff;padding:4px 10px;border-radius:10px;font-size:11px;margin-left:8px;';
+            ghostTag.textContent = '隐身监控中';
+            topBar.querySelector('.top-bar-left').appendChild(ghostTag);
+        }
+
+        // ===== 离开会议 =====
+        function leaveMeeting() {
+            if (!confirm('确定要离开会议吗？')) return;
+            utils.socket.emit('leave-room');
+            // 通话结束：隐藏屏幕共享按钮
+            try { if (window.AndroidApp && window.AndroidApp.setScreenShareButtonVisible) window.AndroidApp.setScreenShareButtonVisible(false); } catch(e) {}
+            window.location.href = '/';
+        }
+
+        // ===== 返回聊天室（会议保持后台运行，类似 QQ）=====
+        function backToChat() {
+            // 不离开房间，只是跳转到聊天页面
+            // WebRTC 连接会继续保持，视频/音频不中断
+            // 注意：返回聊天室时隐藏屏幕共享按钮（通话仍在后台进行，但在聊天界面不需要此按钮）
+            try { if (window.AndroidApp && window.AndroidApp.setScreenShareButtonVisible) window.AndroidApp.setScreenShareButtonVisible(false); } catch(e) {}
+            window.location.href = '/';
+        }
+
+        // ===== Android 返回键处理：弹确认框避免误触挂断 =====
+        // 进入 room 页面时推入一个历史项，按返回键时拦截
+        (function setupBackButtonHandling() {
+            if (!history.state || history.state.view !== 'roomBack') {
+                history.pushState({ view: 'roomBack' }, '');
+            }
+            window.addEventListener('popstate', (e) => {
+                const activeRoomId = localStorage.getItem('activeCallRoomId');
+                if (activeRoomId) {
+                    // 通话进行中：弹确认框，避免误触直接挂断
+                    if (confirm('返回聊天将结束当前通话，确定吗？')) {
+                        // 用户确认：挂断并返回聊天
+                        backToChat();
+                    } else {
+                        // 用户取消：重新推入历史项，保持通话
+                        if (!history.state || history.state.view !== 'roomBack') {
+                            history.pushState({ view: 'roomBack' }, '');
+                        }
+                    }
+                }
+                // 没有活跃通话则正常返回（页面卸载触发 beforeunload 清理）
+            }, { once: false });
+        })();
+
+        // ===== 暴露给 main.js 调用的函数 =====
+        window.onMyVideoReady = function(videoElement) {
+            // 把自己的视频放到左上角小窗
+            const selfContainer = document.getElementById('selfVideo');
+            selfContainer.innerHTML = '';
+            selfContainer.appendChild(videoElement);
+            // 本地预览必须静音，避免回声；确保移动端自动播放属性
+            videoElement.muted = true;
+            videoElement.setAttribute('playsinline', '');
+            videoElement.setAttribute('webkit-playsinline', '');  // 旧版 iOS 兼容
+            videoElement.autoplay = true;
+            // 显式调用 play() 并捕获 promise，避免移动端自动播放策略导致未处理拒绝（黑屏）
+            const p = videoElement.play();
+            if (p && typeof p.catch === 'function') p.catch(() => {});
+        };
+
+        window.onRemoteVideoReady = function(videoElement, peerUserId) {
+            // 确保远端 video 具备自动播放属性（移动端 iOS/WebView 兼容）
+            videoElement.setAttribute('playsinline', '');
+            videoElement.setAttribute('webkit-playsinline', '');  // 旧版 iOS 兼容
+            videoElement.setAttribute('x-webkit-airplay', 'allow');
+            videoElement.autoplay = true;
+            videoElement.muted = false;  // 远端不能静音，否则听不到声音
+            // 设置 inline 关键样式，避免被父容器 layout 影响
+            videoElement.style.width = '100%';
+            videoElement.style.height = '100%';
+            videoElement.style.objectFit = 'cover';
+            videoElement.style.display = '';  // 清除可能残留的 display:none
+
+            const mainContainer = document.getElementById('mainVideo');
+
+            // 检测是否为语音通话：URL/localStorage 指定为语音，或远端流确实无视频轨道
+            const stream = videoElement.srcObject;
+            const hasVideoTrack = stream && stream.getVideoTracks().length > 0;
+            const hasActiveVideoTrack = hasVideoTrack && stream.getVideoTracks().some(t => t.enabled && t.readyState === 'live');
+            const voiceMode = isVoiceCallMode() || !hasActiveVideoTrack;
+
+            if (voiceMode) {
+                // 语音通话：把 video 元素保留在 DOM 中（用于播放音频），但视觉上隐藏
+                mainContainer.innerHTML = '';
+                videoElement.style.display = 'none';
+                mainContainer.appendChild(videoElement);
+                showVoiceCallView(peerUserId);
+                // 语音通话仍需播放音频
+                safePlay(videoElement);
+            } else {
+                // 视频通话：正常显示远端画面
+                mainContainer.innerHTML = '';
+                mainContainer.appendChild(videoElement);
+                hideVoiceCallView();
+                // 立即尝试播放
+                safePlay(videoElement);
+            }
+
+            // 监听 loadedmetadata / canplay / playing 事件，确保视频开始播放（修复黑屏）
+            const replayOnReady = () => safePlay(videoElement);
+            videoElement.addEventListener('loadedmetadata', replayOnReady);
+            videoElement.addEventListener('loadeddata', replayOnReady);
+            videoElement.addEventListener('canplay', replayOnReady);
+            videoElement.addEventListener('playing', () => {
+                console.log('[视频] 开始播放');
+                videoElement.style.opacity = '1';
+            });
+            videoElement.addEventListener('waiting', () => {
+                console.log('[视频] 缓冲中...');
+            });
+            videoElement.addEventListener('error', (e) => {
+                console.error('[视频] 播放错误:', e);
+            });
+
+            // 监听 srcObject 变化（peer 重新协商时可能更换流）
+            if (videoElement.srcObject) {
+                videoElement.srcObject.addEventListener('addtrack', (e) => {
+                    console.log('[流] 添加轨道:', e.track.kind);
+                    if (e.track.kind === 'video') {
+                        // 视频轨道后添加，重新显示视频
+                        videoElement.style.display = '';
+                        hideVoiceCallView();
+                        safePlay(videoElement);
+                    }
+                });
+            }
+
+            // 监听 ICE 连接状态，连接稳定后再次触发 play()（修复偶发黑屏）
+            setupIceStateMonitor(peerUserId, videoElement);
+
+            // 1 秒后再次尝试 play()（兜底，防止某些时序问题）
+            setTimeout(() => safePlay(videoElement), 1000);
+        };
+
+        // 安全播放：捕获 promise 避免 rejected 导致未处理异常
+        function safePlay(videoElement) {
+            try {
+                const p = videoElement.play();
+                if (p && typeof p.catch === 'function') {
+                    p.catch((e) => console.log('[视频] play() 被拒绝:', e.name || e.message || e));
+                }
+            } catch (e) {
+                console.log('[视频] play() 异常:', e);
+            }
+        }
+
+        // 监听用户连接，记录自己的 peerUserId
+        utils.socket.on('connect', () => {
+            myPeerUserId = myPeerUserId || utils.socket.id;
+        });
+
+        // util.js 中 peer.on('open') 会调用此函数，传入真正的 peerUserId
+        window.updateMyPeerId = function(peerId) {
+            myPeerUserId = peerId;
+        };
+
+        // ===== 语音通话检测 =====
+        // 通过 URL 参数或 localStorage 判断是否为语音通话
+        function isVoiceCallMode() {
+            try {
+                const urlParams = new URLSearchParams(window.location.search);
+                const urlCallType = (urlParams.get('callType') || urlParams.get('roomType') || '').toLowerCase();
+                if (urlCallType === 'voice' || urlCallType === 'audio') return true;
+                const lsCallType = (localStorage.getItem('callType') || '').toLowerCase();
+                if (lsCallType === 'voice' || lsCallType === 'audio') return true;
+            } catch (e) {}
+            return false;
+        }
+
+        // ===== 语音通话头像界面 =====
+        let voiceCallDurationTimer = null;
+
+        function showVoiceCallView(peerUserId) {
+            const view = document.getElementById('voiceCallView');
+            if (!view) return;
+            // 语音通话时隐藏自己的视频小窗
+            const selfVideo = document.getElementById('selfVideo');
+            if (selfVideo) selfVideo.style.display = 'none';
+
+            // 获取对方名称：优先 localStorage.callPeerName，其次从成员列表查找
+            let peerName = '';
+            try { peerName = localStorage.getItem('callPeerName') || ''; } catch (e) {}
+            if (!peerName && currentMembers && peerUserId) {
+                const m = currentMembers.find(x => x.peerUserId === peerUserId);
+                if (m) peerName = m.name || '';
+            }
+            if (!peerName) peerName = '对方';
+
+            // 设置头像：优先 localStorage.callPeerAvatar（base64），否则用首字母
+            const avatarEl = document.getElementById('voiceCallAvatar');
+            const initial = (peerName.charAt(0) || '?').toUpperCase();
+            let avatarBase64 = '';
+            try { avatarBase64 = localStorage.getItem('callPeerAvatar') || ''; } catch (e) {}
+            if (avatarBase64) {
+                avatarEl.innerHTML = '<img src="' + avatarBase64 + '" alt="">';
+            } else {
+                avatarEl.textContent = initial;
+            }
+            document.getElementById('voiceCallName').textContent = peerName;
+
+            view.classList.add('show');
+            // 启动通话时长计时
+            startVoiceCallDurationTimer();
+        }
+
+        function hideVoiceCallView() {
+            const view = document.getElementById('voiceCallView');
+            if (view) view.classList.remove('show');
+            // 恢复自己的视频小窗（监控模式下不显示）
+            const selfVideo = document.getElementById('selfVideo');
+            if (selfVideo && !isGhostMode) selfVideo.style.display = '';
+            stopVoiceCallDurationTimer();
+        }
+
+        // ===== 通话时长计时器 =====
+        function startVoiceCallDurationTimer() {
+            stopVoiceCallDurationTimer();
+            const durationEl = document.getElementById('voiceCallDuration');
+            if (!durationEl) return;
+            let startTime = 0;
+            try { startTime = parseInt(localStorage.getItem('callStartTime') || '0', 10); } catch (e) {}
+            if (!startTime || isNaN(startTime)) startTime = Date.now();
+            const update = () => {
+                const elapsed = Math.floor((Date.now() - startTime) / 1000);
+                if (elapsed < 0) { durationEl.textContent = '00:00'; return; }
+                const mm = String(Math.floor(elapsed / 60)).padStart(2, '0');
+                const ss = String(elapsed % 60).padStart(2, '0');
+                durationEl.textContent = mm + ':' + ss;
+            };
+            update();
+            voiceCallDurationTimer = setInterval(update, 1000);
+        }
+
+        function stopVoiceCallDurationTimer() {
+            if (voiceCallDurationTimer) {
+                clearInterval(voiceCallDurationTimer);
+                voiceCallDurationTimer = null;
+            }
+        }
+
+        // ===== ICE 连接状态监控 =====
+        // 在 ICE 连接状态变为 connected/completed 时再次调用 play()，修复偶发黑屏
+        function setupIceStateMonitor(peerUserId, videoElement) {
+            try {
+                // 通过 window.allCalls 获取 peer connection（main.js 暴露）
+                const call = window.allCalls && window.allCalls[peerUserId];
+                const pc = call && call.peerConnection;
+                if (!pc) {
+                    // peerConnection 可能尚未就绪，延迟重试
+                    setTimeout(() => {
+                        const c = window.allCalls && window.allCalls[peerUserId];
+                        const p = c && c.peerConnection;
+                        if (p) attachIceListener(p, videoElement);
+                    }, 1000);
+                    return;
+                }
+                attachIceListener(pc, videoElement);
+            } catch (e) {
+                console.log('[ICE 监控] 设置失败:', e);
+            }
+        }
+
+        function attachIceListener(pc, videoElement) {
+            if (pc.__iceMonitored) return;  // 避免重复监听
+            pc.__iceMonitored = true;
+            const retryPlay = () => {
+                if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+                    console.log('[ICE] 连接状态:', pc.iceConnectionState, '，重新触发 play()');
+                    const p = videoElement.play();
+                    if (p && typeof p.catch === 'function') p.catch(() => {});
+                }
+            };
+            pc.addEventListener('iceconnectionstatechange', retryPlay);
+            // 首次也检查一次（可能已经是 connected）
+            retryPlay();
+        }
+    */</script>
+</body>
+
+</html>

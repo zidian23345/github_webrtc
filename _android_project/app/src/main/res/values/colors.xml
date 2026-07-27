@@ -1,0 +1,12 @@
+﻿<resources>
+    <color name="purple_500">#6200EE</color>
+    <color name="purple_700">#3700B3</color>
+    <color name="teal_200">#03DAC5</color>
+    <color name="teal_700">#018786</color>
+    <color name="black">#000000</color>
+    <color name="white">#FFFFFF</color>
+    <color name="red_500">#CC3833</color>
+    <color name="green_500">#4CAF50</color>
+    <color name="gray_900">#242424</color>
+    <color name="gray_100">#EEEEEE</color>
+</resources>

@@ -1,0 +1,50 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+}
+
+android {
+    namespace 'com.webrtc.screenshare'
+    compileSdk 34
+
+    // 临时重定向 build 输出到工作目录内（避免 TRAE 沙箱限制）
+    buildDir = "I:/debug/webrtc/_android_build/app"
+
+    defaultConfig {
+        applicationId "com.webrtc.screenshare"
+        minSdk 24
+        targetSdk 33
+        versionCode 1
+        versionName "1.0"
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    kotlinOptions {
+        jvmTarget = '17'
+    }
+}
+
+dependencies {
+    implementation 'androidx.core:core-ktx:1.12.0'
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'com.google.android.material:material:1.11.0'
+    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+
+    // Socket.IO 客户端，用于和服务器通信
+    implementation 'io.socket:socket.io-client:2.1.0'
+
+    // OkHttp（socket.io 底层 HTTP 客户端，用于自定义 SSL 信任）
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+
+    // JSON 解析
+    implementation 'org.json:json:20231013'
+}

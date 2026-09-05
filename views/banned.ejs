@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>账号封禁</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+            background: #f7f7f7; min-height: 100vh; color: #333;
+            display: flex; justify-content: center; align-items: center; padding: 24px;
+        }
+        .banned-card {
+            background: #fff; border-radius: 16px; width: 100%; max-width: 420px;
+            box-shadow: 0 4px 24px rgba(0,0,0,0.08); overflow: hidden;
+        }
+        .banned-header {
+            background: linear-gradient(135deg, #fa5151 0%, #d03030 100%);
+            padding: 36px 24px; text-align: center; color: #fff;
+        }
+        .banned-icon {
+            width: 72px; height: 72px; border-radius: 50%;
+            background: rgba(255,255,255,0.2); margin: 0 auto 16px;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .banned-icon svg { width: 38px; height: 38px; fill: #fff; }
+        .banned-header h1 { font-size: 20px; font-weight: 600; }
+        .banned-header p { font-size: 13px; opacity: 0.9; margin-top: 6px; }
+        .banned-body { padding: 20px 24px; }
+        .info-row {
+            display: flex; font-size: 14px; line-height: 2;
+            border-bottom: 1px solid #f2f2f2;
+        }
+        .info-row:last-of-type { border-bottom: none; }
+        .info-label { color: #888; width: 80px; flex-shrink: 0; }
+        .info-value { color: #333; word-break: break-all; }
+        .banned-actions { padding: 16px 24px 24px; display: flex; gap: 12px; }
+        .btn {
+            flex: 1; padding: 12px 0; border: none; border-radius: 10px;
+            font-size: 15px; cursor: pointer; font-family: inherit;
+        }
+        .btn-appeal { background: #07c160; color: #fff; }
+        .btn-view { background: #f2f2f2; color: #333; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .modal-mask {
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.5); z-index: 100;
+            display: none; align-items: center; justify-content: center; padding: 24px;
+        }
+        .modal-mask.show { display: flex; }
+        .modal-box {
+            background: #fff; border-radius: 14px; width: 100%; max-width: 380px;
+            overflow: hidden; max-height: 80vh; display: flex; flex-direction: column;
+        }
+        .modal-title { padding: 18px 16px 8px; font-size: 16px; font-weight: 500; text-align: center; }
+        .modal-content { padding: 8px 16px 16px; overflow-y: auto; }
+        .modal-textarea {
+            width: 100%; min-height: 90px; border: 1px solid #d9d9d9; border-radius: 8px;
+            padding: 10px 12px; font-size: 14px; outline: none; margin-top: 8px;
+            resize: vertical; font-family: inherit;
+        }
+        .modal-textarea:focus { border-color: #07c160; }
+        .modal-hint { font-size: 12px; color: #999; margin-top: 8px; line-height: 1.6; }
+        .modal-buttons { display: flex; padding: 8px 16px 16px; gap: 10px; }
+        .modal-btn {
+            flex: 1; padding: 10px 0; border: none; border-radius: 8px;
+            font-size: 15px; cursor: pointer; font-family: inherit;
+        }
+        .modal-btn.primary { background: #07c160; color: #fff; }
+        .modal-btn.plain { background: #f2f2f2; color: #333; }
+        .toast {
+            position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.75); color: #fff; font-size: 14px;
+            padding: 12px 20px; border-radius: 8px; z-index: 200;
+            max-width: 80%; text-align: center; display: none;
+            pointer-events: none; line-height: 1.6;
+        }
+        .toast.show { display: block; }
+        .appeal-item {
+            padding: 12px; border: 1px solid #f0f0f0; border-radius: 10px;
+            margin-bottom: 10px; font-size: 13px; line-height: 1.7;
+        }
+        .appeal-status { font-size: 12px; font-weight: 500; }
+        .st-pending { color: #ff9c19; }
+        .st-approved { color: #07c160; }
+        .st-rejected { color: #fa5151; }
+        .empty { text-align: center; color: #999; font-size: 13px; padding: 20px 0; }
+        .form-error { color: #fa5151; font-size: 13px; margin-top: 6px; display: none; }
+    </style>
+</head>
+<body>
+    <div class="banned-card">
+        <div class="banned-header">
+            <div class="banned-icon">
+                <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8 0-1.85.63-3.55 1.69-4.9L16.9 17.31C15.55 18.37 13.85 19 12 20zm6.31-3.1L7.1 5.69C8.45 4.63 10.15 4 12 4c4.42 0 8 3.58 8 8 0 1.85-.63 3.55-1.69 4.9z"/></svg>
+            </div>
+            <h1>无法进入</h1>
+            <p>你的<%= banSource === '设备' ? '设备' : '网络 IP' %>已被管理员封禁</p>
+        </div>
+        <div class="banned-body">
+            <div class="info-row"><span class="info-label">封禁理由</span><span class="info-value"><%= banReason %></span></div>
+            <div class="info-row"><span class="info-label">封禁时间</span><span class="info-value"><%= bannedAt ? new Date(bannedAt).toLocaleString() : '未知' %></span></div>
+            <div class="info-row"><span class="info-label">关联账号</span><span class="info-value"><%= relatedUser || '未知' %></span></div>
+        </div>
+        <div class="banned-actions">
+            <button class="btn btn-appeal" id="btnAppeal" onclick="openAppealModal()">提交申诉</button>
+            <button class="btn btn-view" onclick="viewMyAppeals()">查看我的申诉</button>
+        </div>
+        <div style="padding:0 24px 20px;font-size:12px;color:#bbb;text-align:center;">申诉通过后会自动返回聊天室</div>
+    </div>
+
+    <!-- 提交申诉弹窗 -->
+    <div class="modal-mask" id="appealModal">
+        <div class="modal-box">
+            <div class="modal-title">提交封禁申诉</div>
+            <div class="modal-content">
+                <textarea class="modal-textarea" id="appealText" maxlength="200" placeholder="请说明情况，帮助管理员了解封禁是否存在误判（200 字以内）"></textarea>
+                <div class="form-error" id="appealError"></div>
+                <div class="modal-hint">每条封禁只能提交一次申诉，请如实填写。申诉结果会以通知形式送达。</div>
+            </div>
+            <div class="modal-buttons">
+                <button class="modal-btn plain" onclick="closeAppealModal()">取消</button>
+                <button class="modal-btn primary" onclick="submitAppeal()">提交申诉</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 查看申诉弹窗 -->
+    <div class="modal-mask" id="viewModal">
+        <div class="modal-box">
+            <div class="modal-title">我的申诉记录</div>
+            <div class="modal-content" id="appealListWrap"><div class="empty">加载中...</div></div>
+            <div class="modal-buttons">
+                <button class="modal-btn primary" onclick="closeViewModal()">关闭</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script>
+        // 服务端渲染的数据
+        const RELATED_USER = <%- JSON.stringify(relatedUser || '') %>;
+        const BAN_NOTIF_ID = <%- JSON.stringify(banNotifId || '') %>;
+
+        function showToast(msg) {
+            const t = document.getElementById('toast');
+            t.textContent = msg;
+            t.classList.add('show');
+            setTimeout(() => t.classList.remove('show'), 2600);
+        }
+
+        function openAppealModal() {
+            if (!RELATED_USER || !BAN_NOTIF_ID) {
+                showToast('未找到对应的封禁记录，暂无法提交申诉');
+                return;
+            }
+            document.getElementById('appealText').value = '';
+            document.getElementById('appealError').style.display = 'none';
+            document.getElementById('appealModal').classList.add('show');
+        }
+        function closeAppealModal() { document.getElementById('appealModal').classList.remove('show'); }
+
+        async function submitAppeal() {
+            const text = document.getElementById('appealText').value.trim();
+            const errEl = document.getElementById('appealError');
+            errEl.style.display = 'none';
+            if (!text) {
+                errEl.textContent = '申诉内容不能为空';
+                errEl.style.display = 'block';
+                return;
+            }
+            try {
+                const res = await fetch('/api/appeal', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userName: RELATED_USER, notifId: BAN_NOTIF_ID, text, images: [] })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    closeAppealModal();
+                    showToast('申诉已提交，请耐心等待管理员处理');
+                } else {
+                    errEl.textContent = data.error || '提交失败';
+                    errEl.style.display = 'block';
+                }
+            } catch (e) {
+                errEl.textContent = '网络错误，请稍后重试';
+                errEl.style.display = 'block';
+            }
+        }
+
+        async function viewMyAppeals() {
+            const modal = document.getElementById('viewModal');
+            const wrap = document.getElementById('appealListWrap');
+            wrap.innerHTML = '<div class="empty">加载中...</div>';
+            modal.classList.add('show');
+            try {
+                const res = await fetch('/api/appeal?userName=' + encodeURIComponent(RELATED_USER));
+                const data = await res.json();
+                const list = data.list || [];
+                if (!list.length) {
+                    wrap.innerHTML = '<div class="empty">暂无申诉记录</div>';
+                    return;
+                }
+                const statusText = { pending: '待处理', approved: '已通过（已解封）', rejected: '已驳回' };
+                const statusClass = { pending: 'st-pending', approved: 'st-approved', rejected: 'st-rejected' };
+                wrap.innerHTML = list.map(a => `
+                    <div class="appeal-item">
+                        <span class="appeal-status ${statusClass[a.status] || ''}">● ${statusText[a.status] || a.status}</span>
+                        <div>提交时间：${a.createdAt ? new Date(a.createdAt).toLocaleString() : '未知'}</div>
+                        <div>申诉内容：${escapeHtml(a.text || '')}</div>
+                        ${a.comment ? `<div style="color:#5765ec;">管理员意见：${escapeHtml(a.comment)}</div>` : ''}
+                    </div>`).join('');
+            } catch (e) {
+                wrap.innerHTML = '<div class="empty">加载失败，请稍后重试</div>';
+            }
+        }
+        function closeViewModal() { document.getElementById('viewModal').classList.remove('show'); }
+
+        function escapeHtml(s) {
+            return String(s).replace(/[&<>"']/g, c => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+            }[c]));
+        }
+
+        // ===== 轮询封禁状态：申诉通过/管理员解封/封禁到期后自动返回聊天室 =====
+        // 封禁页没有 socket 连接，通过 HTTP 轮询感知解封（无需手动刷新）
+        let banStatusPolling = null;
+        let unbanRedirecting = false;
+        function startBanStatusPolling() {
+            if (banStatusPolling) return;
+            banStatusPolling = setInterval(async () => {
+                if (unbanRedirecting) return;
+                try {
+                    const url = '/api/ban-status' + (RELATED_USER ? '?userName=' + encodeURIComponent(RELATED_USER) : '');
+                    const res = await fetch(url);
+                    const data = await res.json();
+                    if (data && !data.banned) {
+                        unbanRedirecting = true;
+                        clearInterval(banStatusPolling);
+                        // 提示语：给用户一句解封欢迎消息，再自动跳回聊天室
+                        showToast('封禁已解除，欢迎回来！正在返回聊天室…');
+                        setTimeout(() => location.replace('/'), 1500);
+                    }
+                } catch (e) { /* 网络抖动时下轮重试 */ }
+            }, 5000);
+        }
+        startBanStatusPolling();
+    </script>
+</body>
+</html>

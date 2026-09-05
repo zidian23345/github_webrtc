@@ -31,6 +31,8 @@ import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import io.socket.client.IO
 import io.socket.client.Socket
 import io.socket.emitter.Emitter
@@ -68,6 +70,17 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnShareScreen: Button
     private lateinit var btnSettings: ImageButton
     private lateinit var connectionStatus: TextView
+
+    // ===== 服务器离线页面相关 =====
+    private lateinit var offlinePage: android.view.View
+    private lateinit var offlineServerUrl: TextView
+    private lateinit var btnRetry: Button
+    private lateinit var btnOpenSettings: Button
+    private lateinit var autoRetryHint: TextView
+    private lateinit var retryingProgress: android.widget.ProgressBar
+    private var autoRetryRunnable: Runnable? = null
+    private var isPageLoadedSuccess = false  // 标记当前页面是否加载成功
+    private var hadLoadError = false  // 标记本次加载是否发生过错误（防止 onPageFinished 误判）
 
     private var socket: Socket? = null
     private var isSharing = false
@@ -155,11 +168,12 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        // 沉浸式状态栏（让 app 内容延伸到状态栏下方）
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-        window.decorView.systemUiVisibility = android.view.View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-            window.statusBarColor = android.graphics.Color.parseColor("#1a1a1a")  // 与标题栏 gray_900 一致
-        }
+        // 全屏模式：只隐藏导航栏，保留顶部状态栏（可看到时间/电量/信号）
+        // 注意：这里不能调用 setDecorFitsSystemWindows(false)（edge-to-edge 模式会禁用
+        // manifest 里的 adjustResize，软键盘弹出时窗口不再缩小，键盘直接盖住网页输入框）。
+        // 保持默认 decorFits=true：内容自动避让状态栏，顶部显示时间，
+        // 同时键盘弹出时 adjustResize 正常生效，WebView 缩小、输入框抬到键盘上方
+        enterImmersiveMode()
 
         // 初始化视图
         webView = findViewById(R.id.webView)
@@ -167,8 +181,25 @@ class MainActivity : AppCompatActivity() {
         btnSettings = findViewById(R.id.btnSettings)
         connectionStatus = findViewById(R.id.connectionStatus)
 
+        // 初始化离线页面视图
+        offlinePage = findViewById(R.id.offlinePage)
+        offlineServerUrl = findViewById(R.id.offlineServerUrl)
+        btnRetry = findViewById(R.id.btnRetry)
+        btnOpenSettings = findViewById(R.id.btnOpenSettings)
+        autoRetryHint = findViewById(R.id.autoRetryHint)
+        retryingProgress = findViewById(R.id.retryingProgress)
+
         // 默认隐藏屏幕共享按钮，仅在通话中显示（避免在主界面误触）
         btnShareScreen.visibility = android.view.View.GONE
+
+        // 离线页面按钮事件
+        btnRetry.setOnClickListener {
+            Log.d(TAG, "用户点击重试连接")
+            retryLoadServerPage()
+        }
+        btnOpenSettings.setOnClickListener {
+            startActivityForResult(Intent(this, SettingsActivity::class.java), REQ_SETTINGS)
+        }
 
         // 读取服务器配置
         loadServerConfig()
@@ -191,10 +222,8 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // 设置按钮
-        btnSettings.setOnClickListener {
-            startActivityForResult(Intent(this, SettingsActivity::class.java), REQ_SETTINGS)
-        }
+        // 设置按钮（小扳手）：可拖动到屏幕任意位置，轻点仍打开设置
+        setupSettingsButtonDrag()
 
         // 请求运行时权限：摄像头、麦克风、通知（Android 13+）
         requestRuntimePermissions()
@@ -305,8 +334,8 @@ class MainActivity : AppCompatActivity() {
     private fun loadServerConfig() {
         serverUrl = ServerConfig.getServerUrl(this)
         socketUrl = serverUrl
-        // 首次运行 或 用户名为空 时强制跳设置页（保证持久化名称）
-        if (ServerConfig.isFirstRun(this) || ServerConfig.getUserName(this).isEmpty()) {
+        // 首次运行 或 用户名为空 或 服务器地址为空（未配置）时强制跳设置页
+        if (ServerConfig.isFirstRun(this) || ServerConfig.getUserName(this).isEmpty() || serverUrl.isEmpty()) {
             val intent = Intent(this, SettingsActivity::class.java).apply {
                 putExtra("FORCE_FIRST_RUN", true)
             }
@@ -320,6 +349,7 @@ class MainActivity : AppCompatActivity() {
             REQ_SETTINGS -> {
                 // 从设置界面返回，重新读取配置并重载页面
                 val newUrl = ServerConfig.getServerUrl(this)
+                val cacheCleared = data?.getBooleanExtra("CLEAR_CACHE_DONE", false) == true
                 if (newUrl != serverUrl) {
                     Log.d(TAG, "服务器地址已更新: $newUrl")
                     serverUrl = newUrl
@@ -330,6 +360,13 @@ class MainActivity : AppCompatActivity() {
                     // 重新加载页面
                     loadServerPage()
                     // 重新初始化 socket
+                    initSocket()
+                } else if (cacheCleared) {
+                    // 缓存已清理，重新加载 WebView 让前端重新读取数据
+                    Log.d(TAG, "缓存已清理，重新加载 WebView")
+                    socket?.disconnect()
+                    socket?.off()
+                    loadServerPage()
                     initSocket()
                 } else {
                     // 即使 URL 没变，用户名可能变了，重新注入
@@ -350,6 +387,117 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
+     * 全屏模式：只隐藏导航栏，保留顶部状态栏（可看到时间/电量/信号）
+     */
+    private fun enterImmersiveMode() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                val lp = window.attributes
+                lp.layoutInDisplayCutoutMode =
+                    android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+                window.attributes = lp
+            }
+            val controller = WindowInsetsControllerCompat(window, window.decorView)
+            // 只隐藏底部导航栏；状态栏保持显示，顶部可看到时间
+            controller.hide(WindowInsetsCompat.Type.navigationBars())
+            controller.show(WindowInsetsCompat.Type.statusBars())
+            controller.systemBarsBehavior =
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        } catch (e: Exception) {
+            Log.w(TAG, "进入全屏模式失败", e)
+        }
+    }
+
+    /**
+     * 窗口重新获得焦点时保持全屏模式（弹窗、旋转后自动恢复）
+     */
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) enterImmersiveMode()
+    }
+
+    // ===== 设置按钮（小扳手）拖拽状态 =====
+    private var settingsDownRawX = 0f
+    private var settingsDownRawY = 0f
+    private var settingsStartTX = 0f
+    private var settingsStartTY = 0f
+    private var settingsMoved = false
+
+    /**
+     * 设置按钮可拖动实现：
+     * - 按住拖动：通过 translationX/Y 移动到屏幕任意位置（带边界约束，松手后位置持久化）
+     * - 轻点（位移小于 8px）：打开设置界面
+     */
+    @SuppressLint("ClickableViewAccessibility")
+    private fun setupSettingsButtonDrag() {
+        // 恢复上次保存的位置
+        val prefs = getSharedPreferences("server_config", MODE_PRIVATE)
+        val savedTX = prefs.getFloat("settings_btn_tx", Float.MIN_VALUE)
+        val savedTY = prefs.getFloat("settings_btn_ty", Float.MIN_VALUE)
+        if (savedTX != Float.MIN_VALUE && savedTY != Float.MIN_VALUE) {
+            btnSettings.translationX = savedTX
+            btnSettings.translationY = savedTY
+        }
+
+        btnSettings.setOnTouchListener { v, ev ->
+            when (ev.actionMasked) {
+                android.view.MotionEvent.ACTION_DOWN -> {
+                    settingsDownRawX = ev.rawX
+                    settingsDownRawY = ev.rawY
+                    settingsStartTX = v.translationX
+                    settingsStartTY = v.translationY
+                    settingsMoved = false
+                    true
+                }
+                android.view.MotionEvent.ACTION_MOVE -> {
+                    val dx = ev.rawX - settingsDownRawX
+                    val dy = ev.rawY - settingsDownRawY
+                    if (Math.abs(dx) > 8 || Math.abs(dy) > 8) settingsMoved = true
+                    if (settingsMoved) {
+                        v.translationX = settingsStartTX + dx
+                        v.translationY = settingsStartTY + dy
+                    }
+                    true
+                }
+                android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> {
+                    if (settingsMoved) {
+                        // 边界约束 + 持久化位置
+                        clampSettingsButton(v)
+                        v.performClick()
+                    } else {
+                        // 轻点：打开设置界面
+                        startActivityForResult(Intent(this, SettingsActivity::class.java), REQ_SETTINGS)
+                        v.performClick()
+                    }
+                    true
+                }
+                else -> false
+            }
+        }
+    }
+
+    /**
+     * 约束设置按钮位置在屏幕范围内，并持久化保存
+     */
+    private fun clampSettingsButton(v: android.view.View) {
+        val dm = resources.displayMetrics
+        val margin = 8 * dm.density
+        // v.x = left + translationX，left 是布局初始位置（右上角）
+        var newX = v.translationX
+        var newY = v.translationY
+        if (v.x < margin) newX += margin - v.x
+        if (v.y < margin) newY += margin - v.y
+        if (v.x + v.width > dm.widthPixels - margin) newX -= (v.x + v.width) - (dm.widthPixels - margin)
+        if (v.y + v.height > dm.heightPixels - margin) newY -= (v.y + v.height) - (dm.heightPixels - margin)
+        v.translationX = newX
+        v.translationY = newY
+        getSharedPreferences("server_config", MODE_PRIVATE).edit()
+            .putFloat("settings_btn_tx", newX)
+            .putFloat("settings_btn_ty", newY)
+            .apply()
+    }
+
+    /**
      * 配置 WebView
      */
     @SuppressLint("SetJavaScriptEnabled")
@@ -363,6 +511,21 @@ class MainActivity : AppCompatActivity() {
             mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
             cacheMode = android.webkit.WebSettings.LOAD_DEFAULT
             userAgentString = userAgentString + " WebRTC-AndroidApp/1.0"
+        }
+        // 禁止 WebView 自动暗色化（由前端 CSS data-theme 控制，避免双重暗色化）
+        // Android 10-12 默认 FORCE_DARK_AUTO 会反转网页颜色，需关闭；Android 13+ 默认已关闭
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            @Suppress("DEPRECATION")
+            webView.settings.setForceDark(android.webkit.WebSettings.FORCE_DARK_OFF)
+        }
+        // Android 13+ 启用 media queries 暗色支持，让 prefers-color-scheme 能反映系统主题
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            // Android 13 的 WebView 通过 Algorithmic Darkening 自动适配，需要前端支持 [color-scheme: dark]
+            try {
+                webView.settings.setAlgorithmicDarkeningAllowed(true)
+            } catch (e: NoSuchMethodError) {
+                Log.w(TAG, "setAlgorithmicDarkeningAllowed 不可用", e)
+            }
         }
 
         // 允许自签名 HTTPS 证书
@@ -391,6 +554,9 @@ class MainActivity : AppCompatActivity() {
 
             override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
                 super.onPageStarted(view, url, favicon)
+                // 页面开始加载，重置标记
+                isPageLoadedSuccess = false
+                hadLoadError = false
                 // 在页面开始加载时注入用户名称（在脚本执行前）
                 injectUserNameIntoWebView()
             }
@@ -399,6 +565,37 @@ class MainActivity : AppCompatActivity() {
                 super.onPageFinished(view, url)
                 // 页面加载完成后再次注入（确保生效）
                 injectUserNameIntoWebView()
+
+                // 1. 如果发生过错误（onReceivedError 已触发），强制显示离线页面，不再做内容检测
+                //    （WebView 原生错误页 HTML 内容 > 100 字符，会被下面的检测误判为成功）
+                if (hadLoadError) {
+                    Log.w(TAG, "页面加载完成但之前发生过错误，保持离线页面")
+                    showOfflinePage()
+                    return
+                }
+
+                // 2. 检测 WebView 原生错误页 URL（about:neterror、data:、about:blank）
+                if (url == null || url.startsWith("about:neterror") || url.startsWith("data:")
+                    || url == "about:blank") {
+                    Log.w(TAG, "检测到 WebView 错误页 URL: $url")
+                    hadLoadError = true
+                    showOfflinePage()
+                    return
+                }
+
+                // 3. 检查页面是否有实际内容（避免空白页被当成功）
+                if (!isPageLoadedSuccess) {
+                    view?.evaluateJavascript("(document.body && document.body.innerHTML.length > 100 && !document.title.includes('error') && !document.title.includes('错误')) ? 'OK' : 'EMPTY'") { result ->
+                        if (result != null && result.contains("OK")) {
+                            isPageLoadedSuccess = true
+                            hideOfflinePage()
+                            Log.d(TAG, "页面加载成功")
+                        } else {
+                            Log.w(TAG, "页面加载完成但内容为空，可能服务器离线")
+                            showOfflinePage()
+                        }
+                    }
+                }
                 url?.let { extractRoomId(it)?.let { roomId ->
                     currentRoomId = roomId
                     joinSocketRoom(roomId)
@@ -411,7 +608,17 @@ class MainActivity : AppCompatActivity() {
                 error: WebResourceError?
             ) {
                 super.onReceivedError(view, request, error)
-                Log.e(TAG, "WebView 错误: ${error?.description}")
+                Log.e(TAG, "WebView 错误: ${error?.description} (主资源: ${request?.isForMainFrame})")
+                // 只处理主资源错误（页面加载失败），子资源错误不影响
+                if (request?.isForMainFrame == true) {
+                    isPageLoadedSuccess = false
+                    hadLoadError = true  // 标记发生过错误，阻止 onPageFinished 误判
+                    // 立即隐藏 WebView，避免显示原生错误页
+                    runOnUiThread {
+                        webView.visibility = android.view.View.INVISIBLE
+                        showOfflinePage()
+                    }
+                }
             }
         }
 
@@ -471,6 +678,26 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
+     * 监听系统配置变化（暗色模式切换等）
+     * 当系统主题切换时，主动通知前端重新应用主题
+     */
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        // 检测系统暗色模式切换（Android 10+）
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val isDark = (newConfig.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
+                android.content.res.Configuration.UI_MODE_NIGHT_YES
+            // 主动注入 JS 通知前端当前系统主题，避免 WebView 媒体查询失效
+            webView.post {
+                webView.evaluateJavascript(
+                    "if (typeof window.__onSystemThemeChange === 'function') { window.__onSystemThemeChange(${if (isDark) "true" else "false"}); }",
+                    null
+                )
+            }
+        }
+    }
+
+    /**
      * 注入用户名称到 WebView 的 sessionStorage
      * 在页面脚本执行前调用，确保 util.js 能读取到
      */
@@ -487,7 +714,7 @@ class MainActivity : AppCompatActivity() {
 
     /**
      * 从 URL 提取房间号
-     * URL 格式：https://your-server:3030/room/<6位数字>
+     * URL 格式：https://192.168.1.100:3030/room/<6位数字>
      */
     private fun extractRoomId(url: String): String? {
         return try {
@@ -507,6 +734,7 @@ class MainActivity : AppCompatActivity() {
 
     /**
      * 加载服务器页面
+     * 先通过 HTTP 探测服务器是否在线，避免 WebView 直接加载失败显示原生错误页
      */
     private fun loadServerPage() {
         if (serverUrl.isEmpty()) {
@@ -514,8 +742,158 @@ class MainActivity : AppCompatActivity() {
             return
         }
         Log.d(TAG, "加载页面: $serverUrl")
-        webView.loadUrl(serverUrl)
+        isPageLoadedSuccess = false
+        hadLoadError = false
+        // 直接显示离线页面 + 加载动画，等探测结果再决定加载 WebView
+        offlineServerUrl.text = "目标服务器: $serverUrl"
+        offlinePage.visibility = android.view.View.VISIBLE
+        webView.visibility = android.view.View.INVISIBLE
+        retryingProgress.visibility = android.view.View.VISIBLE
+        autoRetryHint.visibility = android.view.View.INVISIBLE
+        btnRetry.isEnabled = false
+        btnRetry.text = "正在连接..."
+        // 探测服务器健康状态
+        checkServerHealthAndLoad()
         Toast.makeText(this, "正在连接服务器...", Toast.LENGTH_SHORT).show()
+    }
+
+    /**
+     * 显示离线页面（替代 WebView 原生错误页）
+     */
+    private fun showOfflinePage() {
+        runOnUiThread {
+            // 取消可能正在进行的自动重试
+            autoRetryRunnable?.let { handler.removeCallbacks(it) }
+            autoRetryRunnable = null
+
+            // 显示服务器地址
+            offlineServerUrl.text = "目标服务器: $serverUrl"
+            // 重置按钮状态
+            btnRetry.isEnabled = true
+            btnRetry.text = "重试连接"
+            autoRetryHint.visibility = android.view.View.INVISIBLE
+            retryingProgress.visibility = android.view.View.INVISIBLE
+
+            // 显示离线页面，隐藏 WebView
+            offlinePage.visibility = android.view.View.VISIBLE
+            webView.visibility = android.view.View.INVISIBLE
+
+            // 设置状态栏颜色为深色
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                window.statusBarColor = android.graphics.Color.parseColor("#0d1117")
+            }
+
+            Log.d(TAG, "显示离线页面")
+
+            // 启动自动重试倒计时（5 秒后自动重试）
+            startAutoRetryCountdown()
+        }
+    }
+
+    /**
+     * 隐藏离线页面
+     */
+    private fun hideOfflinePage() {
+        runOnUiThread {
+            // 取消自动重试
+            autoRetryRunnable?.let { handler.removeCallbacks(it) }
+            autoRetryRunnable = null
+
+            offlinePage.visibility = android.view.View.GONE
+            webView.visibility = android.view.View.VISIBLE
+
+            // 恢复状态栏颜色
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                window.statusBarColor = android.graphics.Color.parseColor("#1a1a1a")
+            }
+            Log.d(TAG, "隐藏离线页面")
+        }
+    }
+
+    /**
+     * 启动自动重试倒计时（5 秒后自动重试）
+     */
+    private fun startAutoRetryCountdown() {
+        autoRetryHint.visibility = android.view.View.VISIBLE
+        autoRetryHint.text = "将在 5 秒后自动重试..."
+
+        autoRetryRunnable = Runnable {
+            runOnUiThread {
+                if (offlinePage.visibility == android.view.View.VISIBLE) {
+                    Log.d(TAG, "自动重试连接...")
+                    retryLoadServerPage()
+                }
+            }
+        }
+        // 5 秒后执行自动重试
+        handler.postDelayed(autoRetryRunnable!!, 5000)
+    }
+
+    /**
+     * 重试加载服务器页面（点击重试按钮或自动重试时调用）
+     */
+    private fun retryLoadServerPage() {
+        runOnUiThread {
+            // 禁用按钮，显示加载中
+            btnRetry.isEnabled = false
+            btnRetry.text = "正在重试..."
+            autoRetryHint.visibility = android.view.View.INVISIBLE
+            retryingProgress.visibility = android.view.View.VISIBLE
+
+            // 先通过 HTTP 探测服务器是否在线，再加载 WebView
+            checkServerHealthAndLoad()
+        }
+    }
+
+    /**
+     * 通过 HTTP 探测服务器是否在线
+     * 在线则加载 WebView，离线则重新显示倒计时
+     */
+    private fun checkServerHealthAndLoad() {
+        Thread {
+            try {
+                val okHttpClient = createTrustingHttpClient()
+                val request = okhttp3.Request.Builder()
+                    .url(serverUrl)
+                    .head()  // HEAD 请求，只取响应头，不下载内容
+                    .build()
+                val response = okHttpClient.newCall(request).execute()
+                val isOnline = response.isSuccessful || response.code in 200..499
+                response.close()
+
+                runOnUiThread {
+                    retryingProgress.visibility = android.view.View.INVISIBLE
+                    if (isOnline) {
+                        Log.d(TAG, "服务器探测成功，加载页面")
+                        // 服务器在线，先隐藏离线页面再加载 WebView
+                        autoRetryRunnable?.let { handler.removeCallbacks(it) }
+                        autoRetryRunnable = null
+                        offlinePage.visibility = android.view.View.GONE
+                        webView.visibility = android.view.View.VISIBLE
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                            window.statusBarColor = android.graphics.Color.parseColor("#1a1a1a")
+                        }
+                        isPageLoadedSuccess = false
+                        hadLoadError = false
+                        webView.loadUrl(serverUrl)
+                    } else {
+                        Log.w(TAG, "服务器探测失败，继续等待")
+                        btnRetry.isEnabled = true
+                        btnRetry.text = "重试连接"
+                        startAutoRetryCountdown()
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "服务器探测异常: ${e.message}")
+                runOnUiThread {
+                    retryingProgress.visibility = android.view.View.INVISIBLE
+                    btnRetry.isEnabled = true
+                    btnRetry.text = "重试连接"
+                    // 服务器不可达，继续倒计时重试
+                    startAutoRetryCountdown()
+                }
+            }
+        }.start()
     }
 
     /**

@@ -7,21 +7,28 @@ android {
     namespace 'com.webrtc.screenshare'
     compileSdk 34
 
-    // 临时重定向 build 输出到工作目录内（避免 TRAE 沙箱限制）
-    buildDir = "I:/debug/webrtc/_android_build/app"
-
     defaultConfig {
         applicationId "com.webrtc.screenshare"
         minSdk 24
         targetSdk 33
-        versionCode 9
-        versionName "1.6"
+        versionCode 17
+        versionName "1.9.5"
     }
 
+    signingConfigs {
+        release {
+            // 使用 Android 调试签名（与历史版本一致）
+            storeFile file(System.getProperty('user.home') + '/.android/debug.keystore')
+            storePassword 'android'
+            keyAlias 'androiddebugkey'
+            keyPassword 'android'
+        }
+    }
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            signingConfig signingConfigs.release
         }
     }
     compileOptions {

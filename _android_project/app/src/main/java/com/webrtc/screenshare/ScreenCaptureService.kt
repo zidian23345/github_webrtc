@@ -129,7 +129,7 @@ class ScreenCaptureService : Service() {
                 }
 
                 // 初始化 socket.io
-                initSocket(socketUrl ?: ServerConfig.DEFAULT_SERVER_URL) {
+                initSocket(socketUrl ?: ServerConfig.getServerUrl(this)) {
                     joinRoom(roomId!!)
                     // 如果尚未捕获，启动捕获
                     if (!isCapturing) {
@@ -148,7 +148,7 @@ class ScreenCaptureService : Service() {
 
             startForegroundNotification()
 
-            initSocket(socketUrl ?: ServerConfig.DEFAULT_SERVER_URL) {
+            initSocket(socketUrl ?: ServerConfig.getServerUrl(this)) {
                 joinRoom(roomId!!)
                 if (!isCapturing) {
                     startCapture(savedResultCode, savedData!!)

@@ -121,6 +121,34 @@
         }
 
         .empty { text-align: center; padding: 40px; color: #999; }
+
+        /* ===== Tab 小红点（有待处理举报/申诉时显示）===== */
+        .tab { position: relative; }
+        .tab-dot {
+            display: none; position: absolute; top: 4px; right: 0;
+            width: 8px; height: 8px; border-radius: 50%;
+            background: #fa5151; box-shadow: 0 0 0 2px #fff;
+        }
+
+        /* ===== 交互增强：键盘焦点环 + 按压反馈 ===== */
+        .btn:focus-visible, .refresh-btn:focus-visible, .modal-btn:focus-visible,
+        .header-btn:focus-visible, .tab:focus-visible, input:focus-visible,
+        textarea:focus-visible, select:focus-visible {
+            outline: 2px solid #5765ec;
+            outline-offset: 2px;
+        }
+        .btn:active, .refresh-btn:active, .modal-btn:active { transform: scale(0.96); }
+        .btn, .refresh-btn, .modal-btn { transition: opacity 0.15s, transform 0.1s; }
+        .word-tag .remove:hover { color: #fa5151; }
+
+        /* ===== 减弱动效：尊重系统无障碍设置 ===== */
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                animation-duration: 0.01ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.01ms !important;
+            }
+        }
     </style>
 </head>
 <body>
@@ -162,8 +190,13 @@
             <button class="tab active" onclick="switchTab('rooms')"><i class="fa fa-video-camera"></i> 会议</button>
             <button class="tab" onclick="switchTab('messages')"><i class="fa fa-comments"></i> 消息</button>
             <button class="tab" onclick="switchTab('friends')"><i class="fa fa-user-plus"></i> 好友</button>
+            <button class="tab" onclick="switchTab('chatbgs')"><i class="fa fa-picture-o"></i> 背景管理</button>
             <button class="tab" onclick="switchTab('users')"><i class="fa fa-users"></i> 用户</button>
             <button class="tab" onclick="switchTab('words')"><i class="fa fa-filter"></i> 违禁词</button>
+            <button class="tab" onclick="switchTab('notifications')"><i class="fa fa-bell"></i> 系统通知</button>
+            <button class="tab" onclick="switchTab('appeals')"><i class="fa fa-commenting-o"></i> 申诉管理<span class="tab-dot" id="dotAppeals"></span></button>
+            <button class="tab" onclick="switchTab('reports')"><i class="fa fa-flag"></i> 举报管理<span class="tab-dot" id="dotReports"></span></button>
+            <button class="tab" onclick="switchTab('logs')"><i class="fa fa-history"></i> 操作日志</button>
             <button class="tab" onclick="switchTab('update')"><i class="fa fa-cloud-upload"></i> 发布更新</button>
         </div>
 
@@ -202,10 +235,26 @@
             </div>
         </div>
 
+        <!-- 聊天背景管理面板 -->
+        <div class="panel" id="panel-chatbgs">
+            <h3 style="margin-bottom:8px;">用户聊天背景</h3>
+            <button class="refresh-btn" onclick="loadChatBgs()"><i class="fa fa-refresh"></i> 刷新背景列表</button>
+            <div style="font-size:13px;color:#888;margin:8px 0;">说明：用户更换私聊背景时会上传缩略图。若发现不合规图片，点击"撤回"会将该用户的对应私聊背景重置为默认。</div>
+            <div id="chatBgsList" style="margin-top:12px;display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;"></div>
+        </div>
+
         <!-- 用户面板 -->
         <div class="panel" id="panel-users">
             <button class="refresh-btn" onclick="loadUsers()"><i class="fa fa-refresh"></i> 刷新</button>
             <div id="usersList"></div>
+
+            <!-- IP/设备封禁管理 -->
+            <div style="margin-top:24px;border-top:1px solid #eee;padding-top:16px;">
+                <h3 style="margin-bottom:8px;"><i class="fa fa-network-wired"></i> IP/设备封禁</h3>
+                <p style="color:#666;font-size:13px;margin-bottom:12px;">封禁用户时勾选"同时封禁 IP/设备"会记录其网络 IP 与设备 ID，换用户名也无法进入。解除某用户的封禁时会自动解除其关联的 IP/设备封禁。</p>
+                <button class="refresh-btn" onclick="loadIpBans()"><i class="fa fa-refresh"></i> 刷新列表</button>
+                <div id="ipBansList"></div>
+            </div>
         </div>
 
         <!-- 违禁词面板 -->
@@ -214,6 +263,60 @@
             <p style="color: #666; font-size: 13px; margin-bottom: 12px;">包含违禁词的消息将无法发送，发送者会收到提示。</p>
             <input type="text" class="modal-input" id="newWordInput" placeholder="输入违禁词，按回车添加" onkeypress="if(event.key==='Enter')addWord()">
             <div class="banned-words-box" id="wordsBox"></div>
+        </div>
+
+        <!-- 系统通知面板 -->
+        <div class="panel" id="panel-notifications">
+            <h3 style="margin-bottom: 12px;">系统通知管理</h3>
+            <p style="color: #666; font-size: 13px; margin-bottom: 12px;">向全体用户或指定用户下发通知，用户首页左上角铃铛会显示红点提醒。封禁/解封也会自动生成定向通知。</p>
+            <div style="background:#f9f9f9;border:1px solid #e8e8e8;border-radius:10px;padding:14px;margin-bottom:16px;max-width:600px;">
+                <div style="margin-bottom:10px;">
+                    <label style="display:block;font-size:13px;color:#666;margin-bottom:4px;">通知标题</label>
+                    <input type="text" class="modal-input" id="notifTitleInput" placeholder="如：系统公告（留空默认为系统通知）" style="width:100%;">
+                </div>
+                <div style="margin-bottom:10px;">
+                    <label style="display:block;font-size:13px;color:#666;margin-bottom:4px;">通知内容 *</label>
+                    <textarea class="modal-textarea" id="notifContentInput" placeholder="输入通知内容" rows="3" style="width:100%;"></textarea>
+                </div>
+                <div style="margin-bottom:12px;">
+                    <label style="display:block;font-size:13px;color:#666;margin-bottom:4px;">发送对象</label>
+                    <input type="text" class="modal-input" id="notifTargetInput" placeholder="留空 = 全体用户；填用户名 = 仅该用户可见" style="width:100%;">
+                </div>
+                <button class="refresh-btn" style="background:#07c160;color:#fff;" onclick="sendNotification()"><i class="fa fa-paper-plane"></i> 下发通知</button>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+                <h4 style="font-size:14px;color:#333;">已下发通知</h4>
+                <button class="refresh-btn" onclick="loadNotifications()"><i class="fa fa-refresh"></i> 刷新</button>
+                <button class="refresh-btn" style="background:#fa5151;color:#fff;" onclick="clearAllNotifications()"><i class="fa fa-trash"></i> 清空全部通知</button>
+            </div>
+            <div id="notificationsList"></div>
+        </div>
+
+        <!-- 申诉管理面板 -->
+        <div class="panel" id="panel-appeals">
+            <h3 style="margin-bottom: 8px;">封禁申诉管理</h3>
+            <p style="color: #666; font-size: 13px; margin-bottom: 12px;">用户对封禁提交的申诉。同意后立即解封并通知用户；驳回后用户无法对该封禁再次申诉。</p>
+            <button class="refresh-btn" onclick="loadAppeals()"><i class="fa fa-refresh"></i> 刷新</button>
+            <button class="refresh-btn" style="background:#fa5151;color:#fff;" onclick="clearAllAppeals()"><i class="fa fa-trash"></i> 清空全部申诉</button>
+            <div id="appealsList" style="margin-top:12px;"></div>
+        </div>
+
+        <!-- 举报管理面板 -->
+        <div class="panel" id="panel-reports">
+            <h3 style="margin-bottom: 8px;">消息举报管理</h3>
+            <p style="color: #666; font-size: 13px; margin-bottom: 12px;">用户长按消息提交的举报（群聊/私聊）。"已处理"表示已跟进（如封禁/警告），"忽略"表示无需处理。收到新举报时顶部标签会显示小红点。</p>
+            <button class="refresh-btn" onclick="loadReports()"><i class="fa fa-refresh"></i> 刷新</button>
+            <button class="refresh-btn" style="background:#fa5151;color:#fff;" onclick="clearAllReports()"><i class="fa fa-trash"></i> 清空全部举报</button>
+            <div id="reportsList" style="margin-top:12px;"></div>
+        </div>
+
+        <!-- 操作日志面板 -->
+        <div class="panel" id="panel-logs">
+            <h3 style="margin-bottom: 8px;">管理员操作日志</h3>
+            <p style="color: #666; font-size: 13px; margin-bottom: 12px;">自动记录所有管理操作（封禁/解封/消息管理/通知/申诉处理等），最多保留 500 条，供审计追溯。</p>
+            <button class="refresh-btn" onclick="loadLogs()"><i class="fa fa-refresh"></i> 刷新</button>
+            <button class="refresh-btn" style="background:#fa5151;color:#fff;" onclick="clearAllLogs()"><i class="fa fa-trash"></i> 清空日志</button>
+            <div id="logsList" style="margin-top:12px;"></div>
         </div>
 
         <!-- 发布更新面板 -->
@@ -247,10 +350,38 @@
             <div class="modal-title">封禁用户</div>
             <div class="modal-content">
                 <p id="banUserInfo" style="font-size: 14px; margin-bottom: 8px;"></p>
-                <textarea class="modal-textarea" id="banReason" placeholder="请输入封禁理由"></textarea>
+                <select id="banReasonSelect" class="modal-input" onchange="onBanReasonSelect(this)">
+                    <option value="">— 快速选择封禁理由 —</option>
+                    <option>发布违规内容</option>
+                    <option>辱骂他人</option>
+                    <option>发送垃圾广告</option>
+                    <option>泄露他人隐私</option>
+                    <option>恶意刷屏</option>
+                    <option>传播不当信息</option>
+                    <option>骚扰其他用户</option>
+                    <option>违反社区规范</option>
+                </select>
+                <textarea class="modal-textarea" id="banReason" placeholder="请输入封禁理由（可从上方快速选择后编辑）"></textarea>
+                <select id="banDurationSelect" class="modal-input" onchange="onBanDurationSelect(this)">
+                    <option value="0">永久封禁</option>
+                    <option value="3600000">1 小时</option>
+                    <option value="86400000">1 天</option>
+                    <option value="604800000">7 天</option>
+                    <option value="2592000000">30 天</option>
+                    <option value="custom">自定义时长…</option>
+                </select>
+                <div id="banCustomDurationBox" style="display:none;gap:8px;align-items:center;margin-top:8px;">
+                    <input type="number" class="modal-input" id="banCustomDurationNum" placeholder="数字" min="1" style="width:100px;flex:1;">
+                    <select class="modal-input" id="banCustomDurationUnit" style="width:100px;flex:1;">
+                        <option value="60000">分钟</option>
+                        <option value="3600000" selected>小时</option>
+                        <option value="86400000">天</option>
+                    </select>
+                </div>
                 <div class="modal-checkbox-group">
                     <label><input type="checkbox" id="banChat" checked> 禁言（不能发消息）</label>
                     <label><input type="checkbox" id="banMeeting"> 禁用会议功能</label>
+                    <label><input type="checkbox" id="banIpDevice"> 同时封禁 IP/设备（换用户名也无法进入）</label>
                 </div>
             </div>
             <div class="modal-btns">
@@ -271,6 +402,37 @@
             <div class="modal-btns">
                 <button class="modal-btn cancel" onclick="closeUnbanModal()">取消</button>
                 <button class="modal-btn" onclick="confirmUnban()" style="color:#07c160;">确认解封</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 用户密码设置弹窗 -->
+    <div class="modal-mask" id="userPasswordModal">
+        <div class="modal-box">
+            <div class="modal-title">设置用户密码</div>
+            <div class="modal-content">
+                <p id="userPasswordInfo" style="font-size: 14px; margin-bottom: 8px;"></p>
+                <input type="text" class="modal-input" id="userPasswordInput" placeholder="输入新密码（至少 4 位）" maxlength="64" style="width:100%;">
+                <p style="font-size:12px;color:#888;margin-top:8px;line-height:1.6;">设置后该名称受密码保护，登录时必须输入正确密码；设置新密码会覆盖旧密码。</p>
+            </div>
+            <div class="modal-btns">
+                <button class="modal-btn cancel" onclick="closeUserPasswordModal()">取消</button>
+                <button class="modal-btn" onclick="confirmUserPassword()" style="color:#1976d2;">保存密码</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 处理申诉弹窗 -->
+    <div class="modal-mask" id="handleAppealModal">
+        <div class="modal-box">
+            <div class="modal-title">处理申诉</div>
+            <div class="modal-content">
+                <p id="handleAppealInfo" style="font-size: 14px; margin-bottom: 8px;"></p>
+                <textarea class="modal-textarea" id="handleAppealComment" placeholder="处理意见（可选，会展示给用户）"></textarea>
+            </div>
+            <div class="modal-btns">
+                <button class="modal-btn cancel" onclick="closeHandleAppeal()">取消</button>
+                <button class="modal-btn" onclick="confirmHandleAppeal()" style="color:#07c160;">确认</button>
             </div>
         </div>
     </div>
@@ -298,16 +460,87 @@
 
         function switchTab(name) {
             document.querySelectorAll('.tab').forEach((t, i) => {
-                t.classList.toggle('active', ['rooms','messages','friends','users','words','update'][i] === name);
+                t.classList.toggle('active', ['rooms','messages','friends','chatbgs','users','words','notifications','appeals','reports','logs','update'][i] === name);
             });
             document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
             document.getElementById('panel-' + name).classList.add('active');
             if (name === 'rooms') loadRooms();
             else if (name === 'messages') loadMessages();
             else if (name === 'friends') loadFriends();
-            else if (name === 'users') loadUsers();
+            else if (name === 'chatbgs') loadChatBgs();
+            else if (name === 'users') { loadUsers(); loadIpBans(); }
             else if (name === 'words') loadWords();
+            else if (name === 'notifications') loadNotifications();
+            else if (name === 'appeals') loadAppeals();
+            else if (name === 'reports') loadReports();
+            else if (name === 'logs') loadLogs();
             else if (name === 'update') loadCurrentVersion();
+        }
+
+        // ===== 聊天背景管理 =====
+        async function loadChatBgs() {
+            const wrap = document.getElementById('chatBgsList');
+            wrap.innerHTML = '<div class="empty">加载中...</div>';
+            try {
+                const res = await fetch('/api/admin/chat-bgs');
+                if (!res.ok) { wrap.innerHTML = '<div class="empty">加载失败</div>'; return; }
+                const data = await res.json();
+                const list = data.list || [];
+                if (list.length === 0) {
+                    wrap.innerHTML = '<div class="empty">暂无用户设置聊天背景</div>';
+                    return;
+                }
+                wrap.innerHTML = list.map(item => {
+                    const date = new Date(item.updatedAt).toLocaleString();
+                    return `<div style="border:1px solid #e0e0e0;border-radius:8px;padding:8px;background:#fff;">
+                        <img src="${item.data}" style="width:100%;height:140px;object-fit:cover;border-radius:4px;background:#f5f5f5;cursor:pointer;" onclick="previewBgImage('${item.key}')" data-bg-key="${item.key}">
+                        <div style="font-size:13px;margin-top:6px;">
+                            <div><b>用户：</b>${escapeHtml(item.userName)}</div>
+                            <div><b>对方：</b>${escapeHtml(item.peer)}</div>
+                            <div style="color:#888;font-size:12px;">${date}</div>
+                        </div>
+                        <button class="refresh-btn" style="background:#fa5151;color:#fff;width:100%;margin-top:6px;" onclick="resetChatBgByAdmin('${item.userName}','${item.peer}')"><i class="fa fa-undo"></i> 撤回（重置为默认）</button>
+                    </div>`;
+                }).join('');
+                // 缓存原图用于预览
+                window.__chatBgCache = {};
+                list.forEach(item => { window.__chatBgCache[item.key] = item.data; });
+            } catch(e) {
+                wrap.innerHTML = '<div class="empty">加载失败：' + escapeHtml(e.message) + '</div>';
+            }
+        }
+        function previewBgImage(key) {
+            const dataUrl = window.__chatBgCache && window.__chatBgCache[key];
+            if (!dataUrl) return;
+            // 复用图片预览模态
+            let preview = document.getElementById('bgImagePreview');
+            if (!preview) {
+                preview = document.createElement('div');
+                preview.id = 'bgImagePreview';
+                preview.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.85);z-index:9999;display:none;align-items:center;justify-content:center;';
+                preview.innerHTML = `<img style="max-width:90%;max-height:90%;border-radius:8px;"><i class="fa fa-times" style="position:absolute;top:20px;right:20px;color:#fff;font-size:32px;cursor:pointer;" onclick="document.getElementById('bgImagePreview').style.display='none';"></i>`;
+                document.body.appendChild(preview);
+            }
+            preview.querySelector('img').src = dataUrl;
+            preview.style.display = 'flex';
+        }
+        async function resetChatBgByAdmin(userName, peer) {
+            if (!confirm(`确定撤回 ${userName} 与 ${peer} 的聊天背景吗？\n撤回后该用户此私聊的背景将被重置为默认。`)) return;
+            try {
+                const res = await fetch('/api/admin/reset-chat-bg', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userName, peer })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    alert('已撤回');
+                    loadChatBgs();
+                } else {
+                    alert('操作失败：' + (data.error || '未知错误'));
+                }
+            } catch(e) {
+                alert('操作失败：' + e.message);
+            }
         }
 
         // ===== 好友关系管理 =====
@@ -410,15 +643,32 @@
                         content = `<a href="${m.content}" target="_blank" style="color:#5765ec;">[视频消息]</a>`;
                     } else if (m.type === 'voice') {
                         content = `[语音消息] ${m.duration || 0}秒`;
-                    } else {
+                    } else if (m.type === 'call') {
+                        content = `[通话记录] ${m.callType || 'voice'} ${m.callOutcome || ''}`;
+                    } else if (m.type === 'bg-invite') {
+                        content = '[背景邀请] ' + (m.content ? '<span style="color:#888;">(含图片数据)</span>' : '');
+                    } else if (m.type === 'bg-accepted') { content = '[已接受背景邀请]'; }
+                    else if (m.type === 'bg-rejected') { content = '[已拒绝背景邀请]'; }
+                    else if (m.type === 'bg-reset') { content = '[恢复默认背景]'; }
+                    else if (m.type === 'bg-reset-by-admin') { content = '[管理员重置背景]'; }
+                    else {
                         content = escapeHtml(m.content || '');
                         if (m.recalled) content = '<span style="color:#999;">[已撤回] ' + content + '</span>';
                     }
                     const isSelf = fromName === userA;
-                    html += `<div class="msg-item" style="background:${isSelf ? '#f6f9ff' : '#fff'};">
+                    const hidden = m.adminHidden;
+                    const msgId = m.id || '';
+                    html += `<div class="msg-item" style="background:${hidden ? '#fff3f3' : (isSelf ? '#f6f9ff' : '#fff')};${hidden ? 'border-left:3px solid #fa5151;':''}">
                         <div style="flex:1;">
-                            <div class="msg-meta"><strong>${escapeHtml(fromName)}</strong> → <strong>${escapeHtml(toName)}</strong> · ${time}</div>
+                            <div class="msg-meta">
+                                <strong>${escapeHtml(fromName)}</strong> → <strong>${escapeHtml(toName)}</strong> · ${time}
+                                ${hidden ? '<span style="color:#fa5151;font-size:11px;margin-left:6px;">[已隐藏]</span>' : ''}
+                            </div>
                             <div class="msg-content">${content}</div>
+                            <div style="margin-top:6px;display:flex;gap:6px;">
+                                <button class="btn-mini" style="background:#fa5151;color:#fff;border:none;padding:3px 10px;border-radius:4px;font-size:12px;cursor:pointer;" onclick="deletePrivateMsg('${encodeURIComponent(userA)}','${encodeURIComponent(userB)}','${msgId}')">删除</button>
+                                <button class="btn-mini" style="background:${hidden?'#07c160':'#ffa500'};color:#fff;border:none;padding:3px 10px;border-radius:4px;font-size:12px;cursor:pointer;" onclick="toggleHidePrivateMsg('${encodeURIComponent(userA)}','${encodeURIComponent(userB)}','${msgId}',${hidden?'false':'true'})">${hidden?'取消隐藏':'隐藏'}</button>
+                            </div>
                         </div>
                     </div>`;
                 }
@@ -426,6 +676,43 @@
             } catch (e) {
                 list.innerHTML = '<div class="empty">加载失败：' + (e.message || '') + '</div>';
             }
+        }
+
+        // 删除私聊消息
+        async function deletePrivateMsg(userAEnc, userBEnc, msgId) {
+            const userA = decodeURIComponent(userAEnc);
+            const userB = decodeURIComponent(userBEnc);
+            if (!confirm('确定删除这条消息吗？删除后不可恢复。')) return;
+            try {
+                const res = await fetch('/api/admin/delete-private-msg', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userA, userB, msgId })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    alert('已删除');
+                    viewPrivateMessages(userAEnc, userBEnc);
+                } else {
+                    alert('删除失败：' + (data.error || ''));
+                }
+            } catch(e) { alert('操作失败：' + e.message); }
+        }
+        // 隐藏/取消隐藏私聊消息
+        async function toggleHidePrivateMsg(userAEnc, userBEnc, msgId, hidden) {
+            const userA = decodeURIComponent(userAEnc);
+            const userB = decodeURIComponent(userBEnc);
+            try {
+                const res = await fetch('/api/admin/hide-private-msg', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userA, userB, msgId, hidden: hidden === true || hidden === 'true' })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    viewPrivateMessages(userAEnc, userBEnc);
+                } else {
+                    alert('操作失败：' + (data.error || ''));
+                }
+            } catch(e) { alert('操作失败：' + e.message); }
         }
 
         // 返回好友列表视图（从私聊会话列表返回）
@@ -524,6 +811,7 @@
                         <td style="max-width:300px;word-break:break-all;">${members}</td>
                         <td>
                             <button class="btn btn-monitor" onclick="monitorRoom('${r.roomId}')"><i class="fa fa-eye"></i> 监控</button>
+                            <button class="btn" style="background:#fa5151;color:#fff;margin-left:6px;" onclick="endRoom('${r.roomId}')"><i class="fa fa-stop"></i> 结束会议</button>
                         </td>
                     </tr>`;
                 });
@@ -584,18 +872,40 @@
                 if (data.users.length === 0) { list.innerHTML = '<div class="empty">暂无用户</div>'; return; }
                 // 在线用户排在前面
                 data.users.sort((a, b) => (b.online - a.online) || (b.lastSeen - a.lastSeen));
-                let html = '<table><thead><tr><th>名称</th><th>状态</th><th>封禁</th><th>最后在线</th><th>操作</th></tr></thead><tbody>';
+                let html = '<table><thead><tr><th>名称</th><th>状态</th><th>封禁</th><th>密码</th><th>最后在线</th><th>操作</th></tr></thead><tbody>';
                 data.users.forEach(u => {
                     const lastSeen = u.lastSeen ? new Date(u.lastSeen).toLocaleString() : '未知';
+                    let banCell = '正常';
+                    if (u.banned) {
+                        const bi = u.banInfo || {};
+                        let expireText = '永久';
+                        if (bi.expireAt) {
+                            const left = bi.expireAt - Date.now();
+                            if (left <= 0) expireText = '即将到期';
+                            else if (left < 3600000) expireText = '剩 ' + Math.ceil(left / 60000) + ' 分钟';
+                            else if (left < 86400000) expireText = '剩 ' + Math.ceil(left / 3600000) + ' 小时';
+                            else expireText = '剩 ' + Math.ceil(left / 86400000) + ' 天';
+                        }
+                        banCell = '<span class="badge badge-banned">已封禁</span><br><small>' +
+                            ((bi.bannedFromChat ? '禁言 ' : '') + (bi.bannedFromMeeting ? '禁会议 ' : '')).trim() +
+                            ' · ' + expireText + '</small><br><small>' + (bi.reason || '') + '</small>';
+                    }
+                    const pwCell = u.hasPassword
+                        ? '<span class="badge" style="background:#e6f7ff;color:#1976d2;">已设置</span>'
+                        : '<span class="badge" style="background:#f5f5f5;color:#999;">未设置</span>';
                     html += `<tr>
                         <td><strong>${u.name}</strong></td>
                         <td>${u.online ? '<span class="badge badge-online">在线</span>' : '<span class="badge badge-offline">离线</span>'}</td>
-                        <td>${u.banned ? '<span class="badge badge-banned">已封禁</span><br><small>' + (u.banInfo?.reason||'') + '</small>' : '正常'}</td>
+                        <td>${banCell}</td>
+                        <td>${pwCell}</td>
                         <td><small>${lastSeen}</small></td>
                         <td>
                             ${u.online ? `<button class="btn btn-rename" onclick="openRenameModal('${u.socketId}','${u.name.replace(/'/g,"\\'")}')">改名</button>` : ''}
                             ${u.banned ? `<button class="btn btn-unban" onclick="openUnbanModal('${u.socketId}','${u.name.replace(/'/g,"\\'")}')">解封</button>` :
                                 `<button class="btn btn-ban" onclick="openBanModal('${u.socketId}','${u.name.replace(/'/g,"\\'")}')">封禁</button>`}
+                            ${u.hasPassword
+                                ? `<button class="btn" style="background:#1976d2;color:#fff;" onclick="openUserPasswordModal('${u.name.replace(/'/g,"\\'")}')">改密码</button><button class="btn" style="background:#888;color:#fff;" onclick="removeUserPassword('${u.name.replace(/'/g,"\\'")}')">移除密码</button>`
+                                : `<button class="btn" style="background:#1976d2;color:#fff;" onclick="openUserPasswordModal('${u.name.replace(/'/g,"\\'")}')">设密码</button>`}
                         </td>
                     </tr>`;
                 });
@@ -654,13 +964,56 @@
             window.open(`/room/${roomId}?ghost=1`, '_blank', 'width=800,height=600');
         }
 
+        // 强制结束会议
+        async function endRoom(roomId) {
+            if (!confirm('确定要强制结束该会议吗？将掐断所有成员的当前通话。')) return;
+            try {
+                const res = await fetch('/api/admin/end-room', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ roomId })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    alert(`已结束会议，共中断 ${data.ended} 个成员`);
+                    loadRooms();
+                } else {
+                    alert(data.error || '结束会议失败');
+                    loadRooms();
+                }
+            } catch (e) {
+                alert('网络错误，无法结束会议');
+            }
+        }
+
         // 封禁
+        let currentBanName = null;
+        function onBanReasonSelect(sel) {
+            if (sel.value) document.getElementById('banReason').value = sel.value;
+        }
+        function onBanDurationSelect(sel) {
+            document.getElementById('banCustomDurationBox').style.display = sel.value === 'custom' ? 'flex' : 'none';
+        }
+        // 计算封禁时长毫秒数（0 = 永久；-1 表示自定义输入无效）
+        function getBanDurationMs() {
+            const sel = document.getElementById('banDurationSelect');
+            if (sel.value !== 'custom') return parseInt(sel.value) || 0;
+            const num = parseFloat(document.getElementById('banCustomDurationNum').value);
+            const unit = parseInt(document.getElementById('banCustomDurationUnit').value);
+            if (!num || num <= 0) return -1;
+            return Math.round(num * unit);
+        }
         function openBanModal(socketId, name) {
             currentBanSocketId = socketId;
+            currentBanName = name;
             document.getElementById('banUserInfo').textContent = `用户：${name}（${socketId}）`;
             document.getElementById('banReason').value = '';
+            document.getElementById('banReasonSelect').value = '';
+            document.getElementById('banDurationSelect').value = '0';
+            document.getElementById('banCustomDurationBox').style.display = 'none';
+            document.getElementById('banCustomDurationNum').value = '';
             document.getElementById('banChat').checked = true;
             document.getElementById('banMeeting').checked = false;
+            document.getElementById('banIpDevice').checked = false;
             document.getElementById('banModal').classList.add('show');
         }
         function closeBanModal() { document.getElementById('banModal').classList.remove('show'); }
@@ -668,21 +1021,39 @@
             const reason = document.getElementById('banReason').value.trim();
             const banChat = document.getElementById('banChat').checked;
             const banMeeting = document.getElementById('banMeeting').checked;
+            const banIpDevice = document.getElementById('banIpDevice').checked;
+            const duration = getBanDurationMs();
             if (!reason) { alert('请输入封禁理由'); return; }
+            if (duration < 0) { alert('请输入有效的自定义时长'); return; }
             try {
                 const res = await fetch('/api/admin/ban', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ socketId: currentBanSocketId, reason, banChat, banMeeting })
+                    // 优先传 userName（持久化索引，socketId 在用户重连后会失效）；duration 毫秒，0 = 永久
+                    body: JSON.stringify({ userName: currentBanName, socketId: currentBanSocketId, reason, banChat, banMeeting, duration, banIpDevice })
                 });
                 const data = await res.json();
-                if (data.success) { closeBanModal(); loadUsers(); alert('已封禁'); }
+                if (data.success) {
+                    closeBanModal(); loadUsers(); loadIpBans();
+                    const durText = duration > 0
+                        ? '已封禁（定时 ' + formatBanDurationAdmin(duration) + '，到期自动解封）'
+                        : '已封禁（永久）';
+                    alert(durText + (data.ipDeviceNote ? '\n同时封禁：' + data.ipDeviceNote : ''));
+                }
                 else { alert(data.error || '封禁失败'); }
             } catch (e) { alert('网络错误'); }
         }
+        function formatBanDurationAdmin(ms) {
+            if (ms >= 86400000 && ms % 86400000 === 0) return (ms / 86400000) + ' 天';
+            if (ms >= 3600000 && ms % 3600000 === 0) return (ms / 3600000) + ' 小时';
+            if (ms >= 60000 && ms % 60000 === 0) return (ms / 60000) + ' 分钟';
+            return Math.round(ms / 60000) + ' 分钟';
+        }
 
         // 解封
+        let currentUnbanName = null;
         function openUnbanModal(socketId, name) {
             currentUnbanSocketId = socketId;
+            currentUnbanName = name;
             document.getElementById('unbanUserInfo').textContent = `用户：${name}（${socketId}）`;
             document.getElementById('unbanReason').value = '';
             document.getElementById('unbanModal').classList.add('show');
@@ -694,13 +1065,365 @@
             try {
                 const res = await fetch('/api/admin/unban', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ socketId: currentUnbanSocketId, reason })
+                    // 优先传 userName（持久化索引，socketId 在用户重连后会失效）
+                    body: JSON.stringify({ userName: currentUnbanName, socketId: currentUnbanSocketId, reason })
                 });
                 const data = await res.json();
                 if (data.success) { closeUnbanModal(); loadUsers(); alert('已解封'); }
                 else { alert(data.error || '解封失败'); }
             } catch (e) { alert('网络错误'); }
         }
+
+        // ===== 用户密码管理 =====
+        let currentUserPasswordName = null;
+        function openUserPasswordModal(name) {
+            currentUserPasswordName = name;
+            document.getElementById('userPasswordInfo').textContent = `用户：${name}`;
+            document.getElementById('userPasswordInput').value = '';
+            document.getElementById('userPasswordModal').classList.add('show');
+        }
+        function closeUserPasswordModal() { document.getElementById('userPasswordModal').classList.remove('show'); }
+        async function confirmUserPassword() {
+            const password = document.getElementById('userPasswordInput').value;
+            if (!password || password.length < 4) { alert('密码不能为空且至少 4 位'); return; }
+            try {
+                const res = await fetch('/api/admin/set-user-password', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userName: currentUserPasswordName, password })
+                });
+                const data = await res.json();
+                if (data.success) { closeUserPasswordModal(); loadUsers(); alert(`已为「${currentUserPasswordName}」设置密码`); }
+                else { alert(data.error || '设置失败'); }
+            } catch (e) { alert('网络错误'); }
+        }
+        async function removeUserPassword(name) {
+            if (!confirm(`确认移除「${name}」的密码？移除后该名称不再受密码保护，任何人都能直接使用。`)) return;
+            try {
+                const res = await fetch('/api/admin/remove-user-password', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userName: name })
+                });
+                const data = await res.json();
+                if (data.success) { loadUsers(); alert(`已移除「${name}」的密码`); }
+                else { alert(data.error || '移除失败'); }
+            } catch (e) { alert('网络错误'); }
+        }
+
+        // ===== 系统通知管理 =====
+        async function loadNotifications() {
+            const wrap = document.getElementById('notificationsList');
+            wrap.innerHTML = '<div class="empty">加载中...</div>';
+            try {
+                const res = await fetch('/api/admin/notifications');
+                if (!res.ok) { wrap.innerHTML = '<div class="empty">加载失败（未授权或服务异常）</div>'; return; }
+                const data = await res.json();
+                const list = data.list || [];
+                if (!list.length) { wrap.innerHTML = '<div class="empty">暂无通知</div>'; return; }
+                wrap.innerHTML = `<table><thead><tr><th>标题</th><th>内容</th><th>对象</th><th>时间</th><th>操作</th></tr></thead><tbody>` +
+                    list.map(n => {
+                        const isAll = !n.target || n.target === 'all';
+                        const tag = isAll
+                            ? '<span class="badge badge-online">全体</span>'
+                            : '<span class="badge badge-banned">' + escapeHtml(n.target) + '</span>';
+                        return `<tr>
+                            <td>${escapeHtml(n.title || '系统通知')}</td>
+                            <td style="max-width:360px;white-space:pre-wrap;word-break:break-all;">${escapeHtml(n.content || '')}</td>
+                            <td>${tag}</td>
+                            <td style="white-space:nowrap;">${n.createdAt ? new Date(n.createdAt).toLocaleString() : '-'}</td>
+                            <td><button class="btn btn-ban" onclick="deleteNotification('${n.id}')">删除</button></td>
+                        </tr>`;
+                    }).join('') + '</tbody></table>';
+            } catch (e) {
+                wrap.innerHTML = '<div class="empty">加载失败：' + escapeHtml(e.message) + '</div>';
+            }
+        }
+        async function sendNotification() {
+            const title = document.getElementById('notifTitleInput').value.trim();
+            const content = document.getElementById('notifContentInput').value.trim();
+            const target = document.getElementById('notifTargetInput').value.trim();
+            if (!content) { alert('通知内容不能为空'); return; }
+            try {
+                const res = await fetch('/api/admin/notify', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ title, content, target })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    alert('通知已下发' + (target ? '给 ' + target : '给全体用户'));
+                    document.getElementById('notifTitleInput').value = '';
+                    document.getElementById('notifContentInput').value = '';
+                    document.getElementById('notifTargetInput').value = '';
+                    loadNotifications();
+                } else { alert(data.error || '下发失败'); }
+            } catch (e) { alert('网络错误'); }
+        }
+        async function deleteNotification(id) {
+            if (!confirm('确认删除该通知？删除后用户端将不再显示。')) return;
+            try {
+                const res = await fetch('/api/admin/delete-notify', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id })
+                });
+                const data = await res.json();
+                if (data.success) loadNotifications();
+                else alert(data.error || '删除失败');
+            } catch (e) { alert('网络错误'); }
+        }
+        async function clearAllNotifications() {
+            if (!confirm('确认清空全部系统通知？所有用户（含在线用户）的通知列表将立即清空，且不可恢复。')) return;
+            try {
+                const res = await fetch('/api/admin/clear-notifications', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+                const data = await res.json();
+                if (data.success) { loadNotifications(); alert('已清空 ' + (data.cleared || 0) + ' 条系统通知'); }
+                else alert(data.error || '清空失败');
+            } catch (e) { alert('网络错误'); }
+        }
+        async function clearAllAppeals() {
+            if (!confirm('确认清空全部申诉记录？清空后用户可对仍生效的封禁重新提交申诉，且不可恢复。')) return;
+            try {
+                const res = await fetch('/api/admin/clear-appeals', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+                const data = await res.json();
+                if (data.success) { loadAppeals(); alert('已清空 ' + (data.cleared || 0) + ' 条申诉记录'); }
+                else alert(data.error || '清空失败');
+            } catch (e) { alert('网络错误'); }
+        }
+
+        // ===== 申诉管理 =====
+        let currentHandleAppeal = null;
+        async function loadAppeals() {
+            const wrap = document.getElementById('appealsList');
+            wrap.innerHTML = '<div class="empty">加载中...</div>';
+            try {
+                const res = await fetch('/api/admin/appeals');
+                if (!res.ok) { wrap.innerHTML = '<div class="empty">加载失败（未授权或服务异常）</div>'; return; }
+                const data = await res.json();
+                const list = data.list || [];
+                if (!list.length) { wrap.innerHTML = '<div class="empty">暂无申诉</div>'; return; }
+                const statusBadge = {
+                    pending: '<span class="badge" style="background:#fff3e0;color:#e65100;">待处理</span>',
+                    approved: '<span class="badge badge-online">已通过</span>',
+                    rejected: '<span class="badge badge-banned">已驳回</span>'
+                };
+                wrap.innerHTML = list.map(a => `
+                    <div style="border:1px solid #e0e0e0;border-radius:10px;padding:14px;margin-bottom:12px;background:#fff;">
+                        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;">
+                            <div><b style="font-size:14px;">${escapeHtml(a.userName)}</b> ${statusBadge[a.status] || ''}</div>
+                            <small style="color:#999;">提交于 ${a.createdAt ? new Date(a.createdAt).toLocaleString() : '-'}</small>
+                        </div>
+                        <div style="font-size:13px;color:#666;margin-top:6px;">封禁理由：${escapeHtml(a.banReason || '-')}</div>
+                        <div style="font-size:13px;margin-top:8px;background:#f9f9f9;border-radius:8px;padding:10px;white-space:pre-wrap;word-break:break-word;">${escapeHtml(a.text || '')}</div>
+                        ${a.images && a.images.length ? `<div style="display:flex;gap:8px;margin-top:8px;">${a.images.map((src, i) => `<img src="${src}" onclick="previewAppealImgAdmin('${a.id}',${i})" style="width:90px;height:90px;object-fit:cover;border-radius:8px;cursor:zoom-in;">`).join('')}</div>` : ''}
+                        ${a.status !== 'pending' ? `<div style="font-size:12px;color:#888;margin-top:8px;">处理时间：${a.handledAt ? new Date(a.handledAt).toLocaleString() : '-'}${a.comment ? ' · 意见：' + escapeHtml(a.comment) : ''}</div>` : ''}
+                        ${a.status === 'pending' ? `<div style="margin-top:10px;">
+                            <button class="btn btn-unban" onclick="openHandleAppeal('${a.id}','approve')"><i class="fa fa-check"></i> 同意（解封）</button>
+                            <button class="btn btn-ban" onclick="openHandleAppeal('${a.id}','reject')"><i class="fa fa-times"></i> 驳回</button>
+                        </div>` : ''}
+                    </div>`).join('');
+                window.__appealCache = {};
+                list.forEach(a => { window.__appealCache[a.id] = a; });
+            } catch (e) {
+                wrap.innerHTML = '<div class="empty">加载失败：' + escapeHtml(e.message) + '</div>';
+            }
+        }
+        function previewAppealImgAdmin(appealId, idx) {
+            const a = window.__appealCache && window.__appealCache[appealId];
+            if (!a || !a.images || !a.images[idx]) return;
+            let mask = document.getElementById('adminAppealImgMask');
+            if (!mask) {
+                mask = document.createElement('div');
+                mask.id = 'adminAppealImgMask';
+                mask.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.9);z-index:10000;display:none;align-items:center;justify-content:center;';
+                mask.innerHTML = '<img style="max-width:95%;max-height:95%;object-fit:contain;">';
+                mask.onclick = () => mask.style.display = 'none';
+                document.body.appendChild(mask);
+            }
+            mask.querySelector('img').src = a.images[idx];
+            mask.style.display = 'flex';
+        }
+        function openHandleAppeal(appealId, action) {
+            currentHandleAppeal = { id: appealId, action };
+            const a = (window.__appealCache || {})[appealId] || {};
+            document.getElementById('handleAppealInfo').innerHTML =
+                `用户：<b>${escapeHtml(a.userName || '')}</b><br>操作：<b style="color:${action === 'approve' ? '#07c160' : '#fa5151'};">${action === 'approve' ? '同意申诉（将立即解封该用户）' : '驳回申诉（用户将无法再次申诉该封禁）'}</b>`;
+            document.getElementById('handleAppealComment').value = '';
+            document.getElementById('handleAppealModal').classList.add('show');
+        }
+        function closeHandleAppeal() { document.getElementById('handleAppealModal').classList.remove('show'); }
+        async function confirmHandleAppeal() {
+            if (!currentHandleAppeal) return;
+            const comment = document.getElementById('handleAppealComment').value.trim();
+            try {
+                const res = await fetch('/api/admin/handle-appeal', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id: currentHandleAppeal.id, action: currentHandleAppeal.action, comment })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    closeHandleAppeal();
+                    loadAppeals();
+                    loadUsers();
+                    updateAdminDots();
+                    alert(currentHandleAppeal.action === 'approve' ? '已同意申诉并解封该用户' : '已驳回该申诉');
+                } else { alert(data.error || '处理失败'); }
+            } catch (e) { alert('网络错误'); }
+        }
+
+        // ===== 举报管理 =====
+        async function loadReports() {
+            const wrap = document.getElementById('reportsList');
+            wrap.innerHTML = '<div class="empty">加载中...</div>';
+            try {
+                const res = await fetch('/api/admin/reports');
+                if (!res.ok) { wrap.innerHTML = '<div class="empty">加载失败（未授权或服务异常）</div>'; return; }
+                const data = await res.json();
+                const list = data.list || [];
+                if (!list.length) { wrap.innerHTML = '<div class="empty">暂无举报</div>'; return; }
+                const statusBadge = {
+                    pending: '<span class="badge" style="background:#fff3e0;color:#e65100;">待处理</span>',
+                    resolved: '<span class="badge badge-online">已处理</span>',
+                    dismissed: '<span class="badge" style="background:#f5f5f5;color:#888;">已忽略</span>'
+                };
+                wrap.innerHTML = list.map(r => `
+                    <div style="border:1px solid #e0e0e0;border-radius:10px;padding:14px;margin-bottom:12px;background:#fff;">
+                        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;">
+                            <div style="font-size:14px;">
+                                <b>${escapeHtml(r.reporter)}</b> 举报 <b style="color:#fa5151;">${escapeHtml(r.reportedUser)}</b>
+                                <span class="badge" style="background:#eef3ff;color:#5765ec;margin-left:6px;">${escapeHtml(r.scene || '群聊')}</span>
+                                ${statusBadge[r.status] || ''}
+                            </div>
+                            <small style="color:#999;">${r.createdAt ? new Date(r.createdAt).toLocaleString() : '-'}</small>
+                        </div>
+                        <div style="font-size:13px;color:#666;margin-top:6px;">举报理由：<b>${escapeHtml(r.reason || '-')}</b></div>
+                        ${r.msgPreview ? `<div style="font-size:13px;margin-top:6px;background:#f9f9f9;border-radius:8px;padding:8px;word-break:break-word;">被举报消息：${escapeHtml(r.msgPreview)}</div>` : ''}
+                        ${r.status !== 'pending' ? `<div style="font-size:12px;color:#888;margin-top:8px;">处理时间：${r.handledAt ? new Date(r.handledAt).toLocaleString() : '-'}${r.comment ? ' · 意见：' + escapeHtml(r.comment) : ''}</div>` : ''}
+                        ${r.status === 'pending' ? `<div style="margin-top:10px;">
+                            <button class="btn btn-unban" onclick="handleReport('${r.id}','resolved')"><i class="fa fa-check"></i> 已处理</button>
+                            <button class="btn" style="background:#f5f5f5;color:#888;" onclick="handleReport('${r.id}','dismissed')"><i class="fa fa-times"></i> 忽略</button>
+                            <button class="btn btn-ban" onclick="jumpToBanUser('${escapeHtml(r.reportedUser)}')"><i class="fa fa-ban"></i> 封禁该用户</button>
+                        </div>` : ''}
+                    </div>`).join('');
+                window.__reportCache = {};
+                list.forEach(r => { window.__reportCache[r.id] = r; });
+            } catch (e) {
+                wrap.innerHTML = '<div class="empty">加载失败：' + escapeHtml(e.message) + '</div>';
+            }
+        }
+        // 处理举报（resolved=已处理 / dismissed=忽略）
+        async function handleReport(id, action) {
+            const comment = action === 'resolved' ? (prompt('处理意见（可选）：') || '') : '';
+            try {
+                const res = await fetch('/api/admin/handle-report', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id, action, comment })
+                });
+                const data = await res.json();
+                if (data.success) { loadReports(); updateAdminDots(); }
+                else { alert(data.error || '处理失败'); }
+            } catch (e) { alert('网络错误'); }
+        }
+        // 从举报快速跳到用户面板封禁
+        function jumpToBanUser(userName) {
+            switchTab('users');
+            setTimeout(() => {
+                // 用户面板的封禁按钮按 data-name 匹配触发
+                const btn = document.querySelector(`#usersList button[onclick*="${userName}"][onclick*="openBanModal"]`);
+                if (btn) btn.click();
+                else alert('未找到该用户（可能已离线），请在用户列表中手动操作');
+            }, 600);
+        }
+        async function clearAllReports() {
+            if (!confirm('确认清空全部举报记录？清空后不可恢复。')) return;
+            try {
+                const res = await fetch('/api/admin/clear-reports', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+                const data = await res.json();
+                if (data.success) { loadReports(); updateAdminDots(); alert('已清空 ' + (data.cleared || 0) + ' 条举报记录'); }
+                else alert(data.error || '清空失败');
+            } catch (e) { alert('网络错误'); }
+        }
+
+        // ===== 操作日志 =====
+        async function loadLogs() {
+            const wrap = document.getElementById('logsList');
+            wrap.innerHTML = '<div class="empty">加载中...</div>';
+            try {
+                const res = await fetch('/api/admin/logs');
+                if (!res.ok) { wrap.innerHTML = '<div class="empty">加载失败（未授权或服务异常）</div>'; return; }
+                const data = await res.json();
+                const list = data.list || [];
+                if (!list.length) { wrap.innerHTML = '<div class="empty">暂无操作记录</div>'; return; }
+                wrap.innerHTML = `<table><thead><tr><th>时间</th><th>操作</th><th>对象</th><th>详情</th><th>操作IP</th></tr></thead><tbody>` +
+                    list.map(l => `<tr>
+                        <td style="white-space:nowrap;">${l.createdAt ? new Date(l.createdAt).toLocaleString() : '-'}</td>
+                        <td><b>${escapeHtml(l.action || '-')}</b></td>
+                        <td>${escapeHtml(l.target || '-')}</td>
+                        <td style="max-width:320px;word-break:break-all;">${escapeHtml(l.detail || '')}</td>
+                        <td style="white-space:nowrap;">${escapeHtml(l.ip || '-')}</td>
+                    </tr>`).join('') + '</tbody></table>';
+            } catch (e) {
+                wrap.innerHTML = '<div class="empty">加载失败：' + escapeHtml(e.message) + '</div>';
+            }
+        }
+        async function clearAllLogs() {
+            if (!confirm('确认清空全部操作日志？清空后不可恢复。')) return;
+            try {
+                const res = await fetch('/api/admin/clear-logs', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+                const data = await res.json();
+                if (data.success) { loadLogs(); alert('已清空 ' + (data.cleared || 0) + ' 条日志'); }
+                else alert(data.error || '清空失败');
+            } catch (e) { alert('网络错误'); }
+        }
+
+        // ===== IP/设备封禁管理 =====
+        async function loadIpBans() {
+            const wrap = document.getElementById('ipBansList');
+            if (!wrap) return;
+            wrap.innerHTML = '<div class="empty">加载中...</div>';
+            try {
+                const res = await fetch('/api/admin/ip-bans');
+                if (!res.ok) { wrap.innerHTML = '<div class="empty">加载失败（未授权或服务异常）</div>'; return; }
+                const data = await res.json();
+                const list = data.list || [];
+                if (!list.length) { wrap.innerHTML = '<div class="empty">暂无 IP/设备封禁</div>'; return; }
+                wrap.innerHTML = `<table><thead><tr><th>类型</th><th>IP/设备ID</th><th>关联用户</th><th>封禁理由</th><th>时间</th><th>操作</th></tr></thead><tbody>` +
+                    list.map(b => `<tr>
+                        <td><span class="badge ${b.type === 'ip' ? 'badge-banned' : 'badge-online'}">${b.type === 'ip' ? 'IP' : '设备'}</span></td>
+                        <td style="font-family:monospace;max-width:200px;word-break:break-all;">${escapeHtml(b.key)}</td>
+                        <td>${escapeHtml(b.userName || '-')}</td>
+                        <td style="max-width:220px;word-break:break-all;">${escapeHtml(b.reason || '-')}</td>
+                        <td style="white-space:nowrap;">${b.bannedAt ? new Date(b.bannedAt).toLocaleString() : '-'}</td>
+                        <td><button class="btn btn-unban" onclick="unbanIpDevice('${b.type}','${escapeHtml(b.key)}')">解除</button></td>
+                    </tr>`).join('') + '</tbody></table>';
+            } catch (e) {
+                wrap.innerHTML = '<div class="empty">加载失败：' + escapeHtml(e.message) + '</div>';
+            }
+        }
+        async function unbanIpDevice(type, key) {
+            if (!confirm(`确认解除该${type === 'ip' ? ' IP' : '设备'}的封禁？\n${key}`)) return;
+            try {
+                const res = await fetch('/api/admin/unban-ip', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ type, key })
+                });
+                const data = await res.json();
+                if (data.success) { loadIpBans(); alert('已解除'); }
+                else alert(data.error || '解除失败');
+            } catch (e) { alert('网络错误'); }
+        }
+
+        // ===== 小红点轮询：有待处理举报/申诉时在 Tab 上亮红点 =====
+        async function updateAdminDots() {
+            try {
+                const res = await fetch('/api/admin/pending-count');
+                if (!res.ok) return;
+                const data = await res.json();
+                const dotReports = document.getElementById('dotReports');
+                const dotAppeals = document.getElementById('dotAppeals');
+                if (dotReports) dotReports.style.display = (data.reports > 0) ? 'block' : 'none';
+                if (dotAppeals) dotAppeals.style.display = (data.appeals > 0) ? 'block' : 'none';
+            } catch (e) { /* 静默失败，下次轮询再试 */ }
+        }
+        // 每 15 秒轮询一次待处理数量
+        setInterval(updateAdminDots, 15000);
 
         // 改名
         function openRenameModal(socketId, name) {
@@ -785,6 +1508,7 @@
 
         // 初始化
         loadRooms();
+        updateAdminDots();   // 启动时立即检查待处理举报/申诉（红点）
         // 自动刷新统计
         setInterval(() => {
             const activePanel = document.querySelector('.panel.active').id;

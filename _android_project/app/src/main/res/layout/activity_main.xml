@@ -1,15 +1,15 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="#000000">
 
-    <!-- WebView 全屏显示（网页自带顶部导航栏）-->
+    <!-- WebView 全屏显示（网页自带顶部导航栏；真全屏沉浸模式下不预留系统栏空间）-->
     <WebView
         android:id="@+id/webView"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:fitsSystemWindows="true" />
+        android:fitsSystemWindows="false" />
 
     <!-- 屏幕共享按钮悬浮在底部居中，默认隐藏 -->
     <Button
@@ -52,5 +52,114 @@
         android:layout_marginTop="18dp"
         android:layout_marginEnd="52dp"
         android:alpha="0.6" />
+
+    <!-- ===== 服务器离线页面（加载失败时显示）===== -->
+    <ScrollView
+        android:id="@+id/offlinePage"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#0d1117"
+        android:fillViewport="true"
+        android:visibility="gone"
+        android:fitsSystemWindows="true">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:gravity="center_horizontal"
+            android:paddingStart="32dp"
+            android:paddingEnd="32dp"
+            android:paddingTop="80dp"
+            android:paddingBottom="48dp">
+
+            <!-- 离线图标（用 emoji 文字模拟，免依赖图片资源） -->
+            <TextView
+                android:layout_width="120dp"
+                android:layout_height="120dp"
+                android:gravity="center"
+                android:text="📡"
+                android:textSize="72sp"
+                android:alpha="0.85"
+                android:background="@drawable/offline_icon_bg" />
+
+            <!-- 标题 -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="32dp"
+                android:text="服务器暂时离线"
+                android:textColor="#e6edf3"
+                android:textSize="24sp"
+                android:textStyle="bold" />
+
+            <!-- 副标题/说明 -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:gravity="center"
+                android:text="我们正在努力恢复服务，请稍后重试"
+                android:textColor="#8b949e"
+                android:textSize="14sp"
+                android:lineSpacingExtra="4dp" />
+
+            <!-- 当前服务器地址展示 -->
+            <TextView
+                android:id="@+id/offlineServerUrl"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="24dp"
+                android:gravity="center"
+                android:text=""
+                android:textColor="#6e7681"
+                android:textSize="12sp"
+                android:fontFamily="monospace" />
+
+            <!-- 重试按钮 -->
+            <Button
+                android:id="@+id/btnRetry"
+                android:layout_width="220dp"
+                android:layout_height="48dp"
+                android:layout_marginTop="40dp"
+                android:text="重试连接"
+                android:textColor="@color/white"
+                android:backgroundTint="#2da44e"
+                android:textSize="15sp"
+                android:textStyle="bold" />
+
+            <!-- 打开设置按钮 -->
+            <Button
+                android:id="@+id/btnOpenSettings"
+                android:layout_width="220dp"
+                android:layout_height="44dp"
+                android:layout_marginTop="12dp"
+                android:text="修改服务器地址"
+                android:textColor="#c9d1d9"
+                android:backgroundTint="#21262d"
+                android:textSize="14sp" />
+
+            <!-- 自动重试状态提示 -->
+            <TextView
+                android:id="@+id/autoRetryHint"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="32dp"
+                android:text="将在 5 秒后自动重试..."
+                android:textColor="#6e7681"
+                android:textSize="12sp"
+                android:visibility="invisible" />
+
+            <!-- 加载小圆点动画 -->
+            <ProgressBar
+                android:id="@+id/retryingProgress"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:layout_marginTop="20dp"
+                android:indeterminateTint="#2da44e"
+                android:visibility="invisible" />
+
+        </LinearLayout>
+    </ScrollView>
 
 </FrameLayout>

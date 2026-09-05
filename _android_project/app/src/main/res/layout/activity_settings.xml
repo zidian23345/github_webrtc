@@ -82,7 +82,7 @@
                 android:id="@+id/editServerUrl"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:hint="https://your-server-ip:3030"
+                android:hint="https://192.168.1.100:3030"
                 android:inputType="textUri"
                 android:background="@android:drawable/editbox_background"
                 android:padding="12dp"
@@ -92,7 +92,7 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="说明：\n• IPv6 地址需要用方括号包裹，例如 https://[2001:db8::1]:3030\n• IPv4 地址直接填写，例如 https://192.168.1.100:3030\n• 端口通常是 3030（HTTPS）\n• 自签名证书会被自动接受"
+                android:text="说明：\n• IPv6 地址需要用方括号包裹，例如 https://[2001:db8::]:3030\n• IPv4 地址直接填写，例如 https://192.168.1.100:3030\n• 端口通常是 3030（HTTPS）\n• 自签名证书会被自动接受"
                 android:textColor="#666666"
                 android:textSize="12sp"
                 android:layout_marginTop="8dp"
@@ -173,6 +173,36 @@
                 android:textSize="13sp"
                 android:padding="12dp"
                 android:layout_marginTop="8dp" />
+
+            <!-- 清理缓存 -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="缓存管理"
+                android:textColor="#333333"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:layout_marginTop="24dp"
+                android:layout_marginBottom="8dp" />
+
+            <Button
+                android:id="@+id/btnClearCache"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="清理缓存"
+                android:textColor="@color/white"
+                android:backgroundTint="@color/red_500" />
+
+            <TextView
+                android:id="@+id/tvCacheInfo"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="清理聊天记录缓存、背景图、网页缓存等临时文件，不会删除你的设置和账户信息"
+                android:textColor="#666666"
+                android:textSize="12sp"
+                android:padding="12dp"
+                android:layout_marginTop="8dp"
+                android:lineSpacingExtra="2dp" />
 
         </LinearLayout>
     </ScrollView>

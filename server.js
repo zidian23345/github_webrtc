@@ -9,8 +9,9 @@ const os = require('os');
 const crypto = require('crypto');
 
 // ===== 管理员配置 =====
-// 部署前请修改为强密码，或通过环境变量注入：process.env.ADMIN_PASSWORD || 'change-me'
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'change-me';
+// 管理员密码通过环境变量 ADMIN_PASSWORD 设置（不硬编码在代码里）
+// 启动示例：ADMIN_PASSWORD=你的密码 node server.js
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
 const ADMIN_COOKIE_NAME = 'zidian_admin';
 const adminSessions = new Set();
 
@@ -100,6 +101,41 @@ function loadUserAvatars() {
         }
     } catch (e) {
         console.error('[加载用户头像失败]', e.message);
+    }
+}
+
+// ===== 用户聊天背景管理 =====
+// userChatBgsByName: Map<userName, { data: base64缩略图, updatedAt, peer: 对方用户名 }>
+// 仅存缩略图用于管理员查看，原图仍由客户端本地保存
+const userChatBgsByName = new Map();
+const USER_CHAT_BGS_FILE = path.join(__dirname, 'data', 'user-chat-bgs.json');
+let saveUserChatBgsTimer = null;
+function saveUserChatBgs() {
+    if (saveUserChatBgsTimer) clearTimeout(saveUserChatBgsTimer);
+    saveUserChatBgsTimer = setTimeout(() => {
+        try {
+            fs.mkdirSync(path.dirname(USER_CHAT_BGS_FILE), { recursive: true });
+            const obj = Object.fromEntries(userChatBgsByName.entries());
+            fs.writeFileSync(USER_CHAT_BGS_FILE, JSON.stringify(obj), 'utf8');
+        } catch (e) {
+            console.error('[保存用户聊天背景失败]', e.message);
+        }
+        saveUserChatBgsTimer = null;
+    }, 1000);
+}
+function loadUserChatBgs() {
+    try {
+        if (!fs.existsSync(USER_CHAT_BGS_FILE)) return;
+        const raw = fs.readFileSync(USER_CHAT_BGS_FILE, 'utf8');
+        const obj = JSON.parse(raw);
+        if (obj && typeof obj === 'object') {
+            for (const [k, v] of Object.entries(obj)) {
+                userChatBgsByName.set(k, v);
+            }
+            console.log(`[加载用户聊天背景] ${userChatBgsByName.size} 个`);
+        }
+    } catch (e) {
+        console.error('[加载用户聊天背景失败]', e.message);
     }
 }
 
@@ -220,6 +256,11 @@ function getPrivateMessages(userA, userB) {
     if (!msgs) { msgs = loadPrivateMessages(userA, userB); privateMessages.set(key, msgs); }
     return msgs;
 }
+// 获取私聊消息文件路径（供管理员直接操作文件用）
+function getPrivateMessagesFile(userA, userB) {
+    const key = getPrivateMsgKey(userA, userB);
+    return path.join(PRIVATE_MSGS_DIR, key.replace(/[|/\\:*?"<>]/g, '_') + '.json');
+}
 // 双向添加好友关系
 function addFriendship(userA, userB) {
     if (!friendsByName.has(userA)) friendsByName.set(userA, new Set());
@@ -254,9 +295,12 @@ function notifyFriendsStatusChange(userName, online) {
 }
 
 // ===== 管理员管理状态 =====
-// bannedUsersByName: Map<userName, { reason, bannedAt, bannedFromChat, bannedFromMeeting, bannedBy }>
+// bannedUsersByName: Map<userName, { reason, bannedAt, bannedFromChat, bannedFromMeeting, bannedBy, bannedIPs[], bannedDevices[] }>
 // 按 userName 索引，避免用户刷新（socketId 变化）就解除禁言
+// bannedIPsByName / bannedDevicesByName: Map<ip/deviceId, banInfo引用> —— IP/设备封禁，换用户名也逃不掉
 const bannedUsersByName = new Map();
+const bannedIPsByName = new Map();      // Map<ip, { userName, reason }>
+const bannedDevicesByName = new Map();  // Map<deviceId, { userName, reason }>
 const BANNED_USERS_FILE = path.join(__dirname, 'data', 'banned-users.json');
 function loadBannedUsers() {
     try {
@@ -264,10 +308,18 @@ function loadBannedUsers() {
         const raw = fs.readFileSync(BANNED_USERS_FILE, 'utf8');
         const obj = JSON.parse(raw);
         if (obj && typeof obj === 'object') {
-            for (const [k, v] of Object.entries(obj)) {
-                bannedUsersByName.set(k, v);
+            // 新格式 { bans: {...}, bannedIPs: {...}, bannedDevices: {...} }；旧格式为纯 { userName: banInfo }
+            const bans = obj.bans || obj;
+            for (const [k, v] of Object.entries(bans)) {
+                if (v && typeof v === 'object' && v.reason !== undefined) bannedUsersByName.set(k, v);
             }
-            console.log(`[加载封禁用户] ${bannedUsersByName.size} 个`);
+            if (obj.bannedIPs && typeof obj.bannedIPs === 'object') {
+                for (const [k, v] of Object.entries(obj.bannedIPs)) bannedIPsByName.set(k, v);
+            }
+            if (obj.bannedDevices && typeof obj.bannedDevices === 'object') {
+                for (const [k, v] of Object.entries(obj.bannedDevices)) bannedDevicesByName.set(k, v);
+            }
+            console.log(`[加载封禁用户] ${bannedUsersByName.size} 个（IP封禁 ${bannedIPsByName.size}，设备封禁 ${bannedDevicesByName.size}）`);
         }
     } catch (e) {
         console.error('[加载封禁用户失败]', e.message);
@@ -276,11 +328,270 @@ function loadBannedUsers() {
 function saveBannedUsers() {
     try {
         fs.mkdirSync(path.dirname(BANNED_USERS_FILE), { recursive: true });
-        const obj = Object.fromEntries(bannedUsersByName.entries());
+        const obj = {
+            bans: Object.fromEntries(bannedUsersByName.entries()),
+            bannedIPs: Object.fromEntries(bannedIPsByName.entries()),
+            bannedDevices: Object.fromEntries(bannedDevicesByName.entries())
+        };
         fs.writeFileSync(BANNED_USERS_FILE, JSON.stringify(obj), 'utf8');
     } catch (e) {
         console.error('[保存封禁用户失败]', e.message);
     }
+}
+// 检查 IP/设备是否被封禁（返回命中的封禁信息）
+function checkIpDeviceBan(ip, deviceId) {
+    if (ip && bannedIPsByName.has(ip)) return { source: 'IP', ...bannedIPsByName.get(ip) };
+    if (deviceId && bannedDevicesByName.has(deviceId)) return { source: '设备', ...bannedDevicesByName.get(deviceId) };
+    return null;
+}
+// 获取 socket 的客户端 IP（归一化 IPv6 映射前缀）
+function getClientIp(socket) {
+    let ip = socket?.handshake?.address || '';
+    if (ip.startsWith('::ffff:')) ip = ip.slice(7);
+    return ip;
+}
+// 获取 HTTP 请求的客户端 IP（归一化 IPv6 映射前缀；直连无反代，取 remoteAddress）
+function getHttpIp(req) {
+    let ip = (req.socket && req.socket.remoteAddress) || '';
+    if (ip.startsWith('::ffff:')) ip = ip.slice(7);
+    return ip;
+}
+
+// 移除某用户关联的所有 IP/设备封禁
+function removeIpDeviceBansByUser(userName) {
+    for (const [ip, info] of bannedIPsByName.entries()) {
+        if (info.userName === userName) bannedIPsByName.delete(ip);
+    }
+    for (const [dev, info] of bannedDevicesByName.entries()) {
+        if (info.userName === userName) bannedDevicesByName.delete(dev);
+    }
+}
+
+// 获取生效中的封禁信息；若封禁已到期则自动删除并通知在线用户（返回 null）
+function getActiveBan(userName) {
+    if (!userName) return null;
+    const banInfo = bannedUsersByName.get(userName);
+    if (!banInfo) return null;
+    if (banInfo.expireAt && Date.now() >= banInfo.expireAt) {
+        bannedUsersByName.delete(userName);
+        removeIpDeviceBansByUser(userName);  // 到期同时解除 IP/设备封禁
+        saveBannedUsers();
+        console.log(`[封禁到期] ${userName} 自动解封`);
+        const sid = onlineUsersByName.get(userName);
+        if (sid) {
+            io.to(sid).emit('user-unbanned', { reason: '封禁已到期，自动解封', unbannedAt: Date.now() });
+            io.to(sid).emit('force-refresh', { reason: '封禁到期' });
+        }
+        return null;
+    }
+    return banInfo;
+}
+
+// ===== 系统通知 =====
+// notifications: [{ id, title, content, target('all'|userName), createdAt, sentBy }]
+const notifications = [];
+const NOTIFICATIONS_FILE = path.join(__dirname, 'data', 'notifications.json');
+const MAX_NOTIFICATIONS = 200;
+let saveNotificationsTimer = null;
+function saveNotifications() {
+    if (saveNotificationsTimer) clearTimeout(saveNotificationsTimer);
+    saveNotificationsTimer = setTimeout(() => {
+        try {
+            fs.mkdirSync(path.dirname(NOTIFICATIONS_FILE), { recursive: true });
+            fs.writeFileSync(NOTIFICATIONS_FILE, JSON.stringify(notifications), 'utf8');
+        } catch (e) {
+            console.error('[保存通知失败]', e.message);
+        }
+        saveNotificationsTimer = null;
+    }, 300);
+}
+function loadNotifications() {
+    try {
+        if (!fs.existsSync(NOTIFICATIONS_FILE)) return;
+        const arr = JSON.parse(fs.readFileSync(NOTIFICATIONS_FILE, 'utf8'));
+        if (Array.isArray(arr)) {
+            notifications.length = 0;
+            notifications.push(...arr.filter(n => n && n.id));
+            console.log(`[加载系统通知] ${notifications.length} 条`);
+        }
+    } catch (e) {
+        console.error('[加载通知失败]', e.message);
+    }
+}
+// 添加通知并实时推送给目标用户（target 为空或 'all' 时广播；meta 携带结构化详情供"查看详情"弹窗展示）
+function addNotification({ title, content, target, meta }) {
+    const notif = {
+        id: 'n' + Date.now() + Math.random().toString(36).slice(2, 6),
+        title: title || '系统通知',
+        content: content || '',
+        target: target && target !== 'all' ? target : 'all',
+        createdAt: Date.now(),
+        sentBy: 'admin',
+        ...(meta ? { meta } : {})
+    };
+    notifications.unshift(notif);
+    if (notifications.length > MAX_NOTIFICATIONS) notifications.length = MAX_NOTIFICATIONS;
+    saveNotifications();
+    if (notif.target === 'all') {
+        io.emit('new-notification', notif);
+    } else {
+        const sid = onlineUsersByName.get(notif.target);
+        if (sid) io.to(sid).emit('new-notification', notif);
+    }
+    return notif;
+}
+// 封禁时长转可读文本
+function formatDurationText(ms) {
+    if (ms >= 30 * 86400000) return '30 天';
+    if (ms >= 7 * 86400000) return '7 天';
+    if (ms >= 86400000) return '1 天';
+    if (ms >= 3600000) return Math.round(ms / 3600000) + ' 小时';
+    if (ms >= 60000) return Math.round(ms / 60000) + ' 分钟';
+    return ms + ' 毫秒';
+}
+
+// ===== 封禁申诉 =====
+// appeals: [{ id, userName, notifId, banReason, text, images[], status('pending'|'approved'|'rejected'), createdAt, handledAt, comment }]
+// 规则：每条封禁通知只能提交一次申诉；被驳回后该封禁无法再次申诉（按钮变"查看我的申诉"）
+const appeals = [];
+const APPEALS_FILE = path.join(__dirname, 'data', 'appeals.json');
+let saveAppealsTimer = null;
+function saveAppeals() {
+    if (saveAppealsTimer) clearTimeout(saveAppealsTimer);
+    saveAppealsTimer = setTimeout(() => {
+        try {
+            fs.mkdirSync(path.dirname(APPEALS_FILE), { recursive: true });
+            fs.writeFileSync(APPEALS_FILE, JSON.stringify(appeals), 'utf8');
+        } catch (e) {
+            console.error('[保存申诉失败]', e.message);
+        }
+        saveAppealsTimer = null;
+    }, 300);
+}
+function loadAppeals() {
+    try {
+        if (!fs.existsSync(APPEALS_FILE)) return;
+        const arr = JSON.parse(fs.readFileSync(APPEALS_FILE, 'utf8'));
+        if (Array.isArray(arr)) {
+            appeals.push(...arr.filter(a => a && a.id));
+            console.log(`[加载申诉] ${appeals.length} 条`);
+        }
+    } catch (e) {
+        console.error('[加载申诉失败]', e.message);
+    }
+}
+
+// ===== 用户名密码保护 =====
+// userPasswordsByName: Map<userName, { hash, salt, setPasswordAt }>
+// 设置了密码的用户名：其他人使用该名称登录时必须输入正确密码，否则只能换名字
+const userPasswordsByName = new Map();
+const USER_PASSWORDS_FILE = path.join(__dirname, 'data', 'user-passwords.json');
+let saveUserPasswordsTimer = null;
+function hashPassword(password, salt) {
+    return crypto.createHash('sha256').update(String(salt) + ':' + String(password)).digest('hex');
+}
+function saveUserPasswords() {
+    if (saveUserPasswordsTimer) clearTimeout(saveUserPasswordsTimer);
+    saveUserPasswordsTimer = setTimeout(() => {
+        try {
+            fs.mkdirSync(path.dirname(USER_PASSWORDS_FILE), { recursive: true });
+            fs.writeFileSync(USER_PASSWORDS_FILE, JSON.stringify(Object.fromEntries(userPasswordsByName.entries())), 'utf8');
+        } catch (e) {
+            console.error('[保存用户密码失败]', e.message);
+        }
+        saveUserPasswordsTimer = null;
+    }, 300);
+}
+function loadUserPasswords() {
+    try {
+        if (!fs.existsSync(USER_PASSWORDS_FILE)) return;
+        const obj = JSON.parse(fs.readFileSync(USER_PASSWORDS_FILE, 'utf8'));
+        if (obj && typeof obj === 'object') {
+            for (const [k, v] of Object.entries(obj)) {
+                if (k && v && v.hash && v.salt) userPasswordsByName.set(k, v);
+            }
+            console.log(`[加载用户密码] ${userPasswordsByName.size} 个`);
+        }
+    } catch (e) {
+        console.error('[加载用户密码失败]', e.message);
+    }
+}
+
+// ===== 消息举报 =====
+// reports: [{ id, reporter, reportedUser, scene('group'|'private'), msgType, msgPreview, reason, createdAt, status('pending'|'resolved'|'dismissed'), handledAt, comment }]
+const reports = [];
+const REPORTS_FILE = path.join(__dirname, 'data', 'reports.json');
+const MAX_REPORTS = 200;
+let saveReportsTimer = null;
+function saveReports() {
+    if (saveReportsTimer) clearTimeout(saveReportsTimer);
+    saveReportsTimer = setTimeout(() => {
+        try {
+            fs.mkdirSync(path.dirname(REPORTS_FILE), { recursive: true });
+            fs.writeFileSync(REPORTS_FILE, JSON.stringify(reports), 'utf8');
+        } catch (e) {
+            console.error('[保存举报失败]', e.message);
+        }
+        saveReportsTimer = null;
+    }, 300);
+}
+function loadReports() {
+    try {
+        if (!fs.existsSync(REPORTS_FILE)) return;
+        const arr = JSON.parse(fs.readFileSync(REPORTS_FILE, 'utf8'));
+        if (Array.isArray(arr)) {
+            reports.push(...arr.filter(r => r && r.id));
+            console.log(`[加载举报] ${reports.length} 条`);
+        }
+    } catch (e) {
+        console.error('[加载举报失败]', e.message);
+    }
+}
+
+// ===== 管理员操作日志 =====
+// adminLogs: [{ id, action, target, detail, ip, createdAt }]
+const adminLogs = [];
+const ADMIN_LOGS_FILE = path.join(__dirname, 'data', 'admin-logs.json');
+const MAX_ADMIN_LOGS = 500;
+let saveAdminLogsTimer = null;
+function saveAdminLogs() {
+    if (saveAdminLogsTimer) clearTimeout(saveAdminLogsTimer);
+    saveAdminLogsTimer = setTimeout(() => {
+        try {
+            fs.mkdirSync(path.dirname(ADMIN_LOGS_FILE), { recursive: true });
+            fs.writeFileSync(ADMIN_LOGS_FILE, JSON.stringify(adminLogs), 'utf8');
+        } catch (e) {
+            console.error('[保存操作日志失败]', e.message);
+        }
+        saveAdminLogsTimer = null;
+    }, 300);
+}
+function loadAdminLogs() {
+    try {
+        if (!fs.existsSync(ADMIN_LOGS_FILE)) return;
+        const arr = JSON.parse(fs.readFileSync(ADMIN_LOGS_FILE, 'utf8'));
+        if (Array.isArray(arr)) {
+            adminLogs.push(...arr.filter(l => l && l.id));
+            console.log(`[加载操作日志] ${adminLogs.length} 条`);
+        }
+    } catch (e) {
+        console.error('[加载操作日志失败]', e.message);
+    }
+}
+// 记录管理操作（action 动作名 / target 操作对象 / detail 补充说明）
+function addAdminLog(req, action, target, detail) {
+    const log = {
+        id: 'l' + Date.now() + Math.random().toString(36).slice(2, 6),
+        action,
+        target: target || '-',
+        detail: detail || '',
+        ip: req ? (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').replace('::ffff:', '') : '',
+        createdAt: Date.now()
+    };
+    adminLogs.unshift(log);
+    if (adminLogs.length > MAX_ADMIN_LOGS) adminLogs.length = MAX_ADMIN_LOGS;
+    saveAdminLogs();
+    return log;
 }
 
 // hiddenMessages: Map<msgId, { hiddenAt, hiddenBy }>
@@ -312,6 +623,9 @@ let bannedWords = ['傻逼', '操你', '草泥马', 'fuck', 'shit', '废物', '�
 // 所有用户历史（用于管理员查看，即使离线也保留）
 // 注意：以 name 作为 key，避免同一用户每次重连（socketId 变化）产生重复条目
 const allUsersHistory = new Map();  // name -> { socketId, name, firstSeen, lastSeen }
+
+// IP -> 最近登录的用户名（用于清缓存/换设备后自动恢复名称）
+const ipLastName = new Map();  // ip -> { name, lastSeen }
 
 // 读取 HTTPS 证书
 const certDir = path.join(__dirname, 'cert');
@@ -428,9 +742,15 @@ const main = async () => {
     loadChatHistory();
     loadBannedUsers();
     loadUserAvatars();
+    loadUserChatBgs();
     loadHiddenMessages();
     loadFriends();
     loadFriendRequests();
+    loadNotifications();
+    loadAppeals();
+    loadReports();
+    loadAdminLogs();
+    loadUserPasswords();
 
     app.set('view engine', 'ejs');
     app.use(express.static('public'));
@@ -446,6 +766,41 @@ const main = async () => {
             if (k === ADMIN_COOKIE_NAME && v && adminSessions.has(v)) {
                 req.adminAuthed = true;
                 break;
+            }
+        }
+        next();
+    });
+
+    // ===== 页面级 IP 封禁拦截：黑名单 IP 直接渲染封禁页（只有被封提示与申诉入口）=====
+    // 已授权管理员不受拦截，避免误伤
+    app.use((req, res, next) => {
+        if (req.adminAuthed) return next();
+        if (req.method === 'GET' && (req.path === '/' || req.path === '/create' || req.path.startsWith('/room/'))) {
+            const ban = checkIpDeviceBan(getHttpIp(req), null);
+            if (ban) {
+                const relatedUser = ban.userName || '';
+                // 找关联用户当前生效的封禁通知（供封禁页提交/查看申诉）
+                const banNotif = notifications.find(n => n.target === relatedUser && (n.meta || {}).type === 'ban' && !n.meta.unbannedByAdmin && !n.meta.unbannedByAppeal);
+                console.log(`[IP封禁页面拦截] ${getHttpIp(req)} → 封禁页（关联用户 ${relatedUser}）`);
+                return res.status(403).render('banned', {
+                    banSource: ban.source || 'IP',
+                    banReason: ban.reason || '违反社区规定',
+                    bannedAt: ban.bannedAt || null,
+                    relatedUser,
+                    banNotifId: banNotif ? banNotif.id : ''
+                });
+            }
+        }
+        next();
+    });
+
+    // ===== API 级 IP 封禁拦截：黑名单 IP 无法调用任何用户功能接口（申诉/封禁状态接口除外，封禁页需要）=====
+    app.use((req, res, next) => {
+        if (req.adminAuthed) return next();
+        if (req.path.startsWith('/api/') && req.path !== '/api/appeal' && req.path !== '/api/ban-status') {
+            const ban = checkIpDeviceBan(getHttpIp(req), null);
+            if (ban) {
+                return res.status(403).json({ error: '你的 IP 已被封禁，无法使用该功能', ipBanned: true });
             }
         }
         next();
@@ -481,8 +836,8 @@ const main = async () => {
             return res.status(400).json({ error: '私聊消息不应走群聊通道' });
         }
 
-        // 检查是否被禁言（按 userName 索引）
-        const banInfo = bannedUsersByName.get(userName);
+        // 检查是否被禁言（按 userName 索引；限时封禁到期自动解封）
+        const banInfo = getActiveBan(userName);
         if (banInfo && banInfo.bannedFromChat) {
             return res.status(403).json({ error: `你已被禁言：${banInfo.reason}` });
         }
@@ -551,6 +906,13 @@ const main = async () => {
         const { toUserName, fromUserName, fromUserId, callType, callId, roomId, isPrivateCall } = req.body || {};
         if (!toUserName || !fromUserName || !callId) {
             return res.status(400).json({ error: '缺少 toUserName/fromUserName/callId' });
+        }
+        // 服务端强制封禁检查：禁言或禁用会议功能的用户不能发起通话
+        const callerBan = getActiveBan(fromUserName);
+        if (callerBan && (callerBan.bannedFromChat || callerBan.bannedFromMeeting)) {
+            const reason = callerBan.bannedFromChat ? '你已被禁言' : '你已被禁用会议功能';
+            console.log(`[HTTP通话拦截] ${fromUserName} 发起通话被拒（${reason}）`);
+            return res.status(403).json({ error: `${reason}，无法发起通话` });
         }
         // 查找目标用户的 socketId（外网重连后 socketId 会变，所以按 userName 查找）
         const targetSocketId = onlineUsersByName.get(toUserName);
@@ -783,7 +1145,10 @@ const main = async () => {
                 online: onlineUsersByName.has(name),
                 avatar: av ? av.data : null,
                 lastMessage: lastMsg ? {
-                    content: lastMsg.type === 'image' ? '[图片]'
+                    type: lastMsg.type,
+                    content: lastMsg.recalled ? `${lastMsg.sender}撤回了一条消息`
+                        : lastMsg.adminHidden ? '消息已被撤回'
+                        : lastMsg.type === 'image' ? '[图片]'
                         : lastMsg.type === 'voice' ? '[语音]'
                         : lastMsg.type === 'video' ? '[视频]'
                         : lastMsg.type === 'call' ? (
@@ -791,6 +1156,11 @@ const main = async () => {
                             : lastMsg.callOutcome === 'cancelled' ? '[通话已取消]'
                             : '[通话记录]'
                         )
+                        : lastMsg.type === 'bg-invite' ? '[聊天背景邀请]'
+                        : lastMsg.type === 'bg-accepted' ? '[已接受背景邀请]'
+                        : lastMsg.type === 'bg-rejected' ? '[已拒绝背景邀请]'
+                        : lastMsg.type === 'bg-reset' ? '[恢复默认背景]'
+                        : lastMsg.type === 'bg-reset-by-admin' ? '[管理员重置背景]'
                         : (lastMsg.content || ''),
                     timestamp: lastMsg.timestamp,
                     sender: lastMsg.sender
@@ -818,18 +1188,56 @@ const main = async () => {
         res.json({ success: true });
     });
 
+    // 背景邀请回复：只更新原 bg-invite 消息的 bgStatus，不产生新消息
+    app.post("/api/friends/bg-reply", (req, res) => {
+        const { from, to, msgId, status } = req.body || {};
+        if (!from || !to || !msgId || !['accepted', 'rejected'].includes(status)) {
+            return res.status(400).json({ error: '缺少参数' });
+        }
+        if (!areFriends(from, to)) return res.status(403).json({ error: '不是好友' });
+        const msgs = getPrivateMessages(from, to);
+        const msg = msgs.find(m => m.id === msgId && m.type === 'bg-invite');
+        if (!msg) return res.status(404).json({ error: '邀请消息不存在' });
+        if (msg.sender === from) return res.status(403).json({ error: '不能回复自己的邀请' });
+        msg.bgStatus = status;
+        savePrivateMessages(from, to, msgs);
+        // 实时通知邀请方（在线时）
+        const toSid = getSocketIdByUserName(msg.sender);
+        if (toSid) {
+            io.to(toSid).emit('private-bg-reply', { msgId, peer: from, status });
+        }
+        console.log(`[背景邀请回复] ${from} -> ${msg.sender}: ${status}`);
+        res.json({ success: true, status });
+    });
+
     // 发送私聊消息
     app.post("/api/friends/message", (req, res) => {
-        const { from, to, type, content, duration, id, timestamp, callType, callOutcome } = req.body || {};
-        if (!from || !to || !content) return res.status(400).json({ error: '缺少参数' });
+        const { from, to, type, content, duration, id, timestamp, callType, callOutcome, quote } = req.body || {};
+        if (!from || !to) return res.status(400).json({ error: '缺少参数' });
+        // bg-accepted/bg-rejected/bg-reset 等系统类消息允许空 content
+        const allowEmptyContent = ['bg-accepted', 'bg-rejected', 'bg-reset', 'bg-reset-by-admin'].includes(type);
+        if (!content && !allowEmptyContent) return res.status(400).json({ error: '缺少参数' });
         // 必须是好友
         if (!areFriends(from, to)) return res.status(403).json({ error: '不是好友，无法发送消息' });
+        // 禁言检查：被禁言用户不能发私聊消息（含文本/图片/视频/语音/通话记录/背景邀请等所有类型）
+        const banInfo = getActiveBan(from);
+        if (banInfo && banInfo.bannedFromChat) {
+            return res.status(403).json({ error: `你已被禁言：${banInfo.reason}` });
+        }
+        // 仅文本消息检查违禁词（图片/视频/语音是二进制 base64，不应做关键词匹配）
+        const privMsgType = type || 'text';
+        if (privMsgType === 'text') {
+            const bannedWord = containsBannedWord(content);
+            if (bannedWord) {
+                return res.status(403).json({ error: `消息包含违禁词"${bannedWord}"，无法发送` });
+            }
+        }
         // 使用客户端传来的 id（避免服务端重新生成导致接收方去重失败，出现重复消息）
         const msg = {
             id: id || crypto.randomUUID(),
             type: type || 'text',
             sender: from,
-            content,
+            content: content || '',
             duration: duration || 0,
             timestamp: timestamp || Date.now()
         };
@@ -838,7 +1246,13 @@ const main = async () => {
             msg.callType = callType || 'voice';
             if (callOutcome) msg.callOutcome = callOutcome;  // 透传通话结果：completed/rejected/cancelled
         }
+        // 引用消息：保存 quote 字段
+        if (quote && quote.id) {
+            msg.quote = { id: quote.id, name: quote.name || '匿名', content: quote.content || '' };
+        }
         addPrivateMessage(from, to, msg);
+        // 注意：bg-accepted/bg-rejected 已改为通过 /api/friends/bg-reply 更新原邀请消息状态，
+        // 不再通过 /api/friends/message 产生新消息
         // 实时推送给接收方（在线时）
         const toSid = getSocketIdByUserName(to);
         if (toSid) {
@@ -855,6 +1269,7 @@ const main = async () => {
         if (!userName || !peerName) return res.json({ messages: [] });
         if (!areFriends(userName, peerName)) return res.status(403).json({ error: '不是好友' });
         const msgs = getPrivateMessages(userName, peerName);
+        // 返回全部消息（含 adminHidden），前端渲染红色"已被撤回"样式（与公用聊天室一致）
         res.json({ messages: msgs });
     });
 
@@ -930,6 +1345,34 @@ const main = async () => {
         }
     });
 
+    // ===== 管理员删除私聊消息 =====
+    app.post("/api/admin/delete-private-msg", (req, res) => {
+        const cookie = req.headers.cookie || '';
+        if (!cookie.includes(ADMIN_COOKIE_NAME + '=')) return res.status(401).json({ error: '未授权' });
+        const { userA, userB, msgId } = req.body || {};
+        if (!userA || !userB || !msgId) return res.status(400).json({ error: '缺少参数' });
+        const msgs = getPrivateMessages(userA, userB);
+        const idx = msgs.findIndex(m => m.id === msgId);
+        if (idx === -1) return res.status(404).json({ error: '消息不存在' });
+        msgs.splice(idx, 1);
+        savePrivateMessages(userA, userB, msgs);
+        res.json({ success: true });
+    });
+
+    // ===== 管理员隐藏/取消隐藏私聊消息 =====
+    app.post("/api/admin/hide-private-msg", (req, res) => {
+        const cookie = req.headers.cookie || '';
+        if (!cookie.includes(ADMIN_COOKIE_NAME + '=')) return res.status(401).json({ error: '未授权' });
+        const { userA, userB, msgId, hidden } = req.body || {};
+        if (!userA || !userB || !msgId) return res.status(400).json({ error: '缺少参数' });
+        const msgs = getPrivateMessages(userA, userB);
+        const m = msgs.find(m => m.id === msgId);
+        if (!m) return res.status(404).json({ error: '消息不存在' });
+        m.adminHidden = !!hidden;
+        savePrivateMessages(userA, userB, msgs);
+        res.json({ success: true, hidden: m.adminHidden });
+    });
+
     // ===== 视频/图片上传 API（避免 Socket.IO 传输大 base64 和 data URL 渲染限制）=====
     const UPLOADS_DIR = path.join(__dirname, 'public', 'uploads');
     fs.mkdirSync(UPLOADS_DIR, { recursive: true });
@@ -982,6 +1425,17 @@ const main = async () => {
         res.json({ users, count: users.length });
     });
 
+    // ===== 聊天 API：按 IP 恢复最近使用的名称（清缓存后自动找回）=====
+    app.get("/api/chat/name-by-ip", (req, res) => {
+        const ip = getHttpIp(req);
+        const record = ip ? ipLastName.get(ip) : null;
+        if (record && record.name) {
+            res.json({ name: record.name, lastSeen: record.lastSeen });
+        } else {
+            res.json({ name: null });
+        }
+    });
+
     // ===== 聊天 API：修改名称 =====
     app.post("/api/chat/rename", (req, res) => {
         const { newName, socketId } = req.body || {};
@@ -997,6 +1451,9 @@ const main = async () => {
         user.name = newName;
         user.nameLockedUntil = now + NAME_LOCK_DURATION;
         user.lastRenameAt = now;
+        // 同步更新 IP -> 最近名称映射（改名后按 IP 恢复也返回新名）
+        const renameIp = getHttpIp(req);
+        if (renameIp) ipLastName.set(renameIp, { name: newName, lastSeen: now });
         io.emit('chat-user-renamed', { socketId: targetSocketId, oldName, newName });
         // 维护按名称索引（删除旧名称，添加新名称）
         onlineUsersByName.delete(oldName);
@@ -1186,6 +1643,90 @@ const main = async () => {
         res.json({ success: true, userName, banned: false });
     });
 
+    // ===== 用户上传聊天背景缩略图（客户端调用，存档供管理员查看） =====
+    app.post("/api/chat/upload-bg", (req, res) => {
+        const { userName, peer, thumb } = req.body || {};
+        if (!userName || !peer || !thumb) return res.status(400).json({ error: '缺少参数' });
+        // 限制缩略图大小（200px JPEG 0.6 质量，约 10-30KB）
+        if (thumb.length > 100 * 1024) return res.status(400).json({ error: '缩略图过大' });
+        // 存储键：userName + '||' + peer，每个好友关系独立
+        const key = userName + '||' + peer;
+        userChatBgsByName.set(key, {
+            data: thumb,
+            updatedAt: Date.now(),
+            userName,
+            peer
+        });
+        saveUserChatBgs();
+        res.json({ success: true });
+    });
+
+    // ===== 用户清除自己的聊天背景（同步通知服务器删除记录） =====
+    app.post("/api/chat/clear-bg", (req, res) => {
+        const { userName, peer } = req.body || {};
+        if (!userName || !peer) return res.status(400).json({ error: '缺少参数' });
+        const key = userName + '||' + peer;
+        const existed = userChatBgsByName.delete(key);
+        if (existed) saveUserChatBgs();
+        res.json({ success: true, existed });
+    });
+
+    // ===== 管理员 API：查看所有用户的聊天背景 =====
+    app.get("/api/admin/chat-bgs", (req, res) => {
+        if (!req.adminAuthed) return res.status(401).json({ error: '未授权' });
+        const list = Array.from(userChatBgsByName.entries()).map(([key, v]) => ({
+            key, userName: v.userName, peer: v.peer, data: v.data, updatedAt: v.updatedAt
+        }));
+        res.json({ list });
+    });
+
+    // ===== 管理员 API：撤回某用户的聊天背景（将该用户某好友的背景重置为默认） =====
+    app.post("/api/admin/reset-chat-bg", (req, res) => {
+        if (!req.adminAuthed) return res.status(401).json({ error: '未授权' });
+        const { userName, peer } = req.body || {};
+        if (!userName || !peer) return res.status(400).json({ error: '缺少参数' });
+        // 同时删除双向背景记录（userName→peer 和 peer→userName），确保双方背景都被清除
+        const key1 = userName + '||' + peer;
+        const key2 = peer + '||' + userName;
+        const existed1 = userChatBgsByName.delete(key1);
+        const existed2 = userChatBgsByName.delete(key2);
+        if (existed1 || existed2) saveUserChatBgs();
+        // 在私聊消息中插入一条系统消息，确保双方即使离线也能在下次加载时清除背景
+        try {
+            // 先把该会话中所有 bg-invite 邀请消息标记为"被管理员撤回"（双方共一份存储，都会生效）
+            const msgs = getPrivateMessages(userName, peer);
+            msgs.forEach(m => {
+                if (m.type === 'bg-invite' && !m.bgRevoked) m.bgRevoked = true;
+            });
+            const sysMsg = {
+                id: 'bg-admin-reset-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
+                sender: '__system__',
+                type: 'bg-reset-by-admin',
+                content: '管理员已重置你的聊天背景',
+                timestamp: Date.now()
+            };
+            // 使用标准 API 操作内存缓存 + 持久化（避免直接写文件导致内存不一致）
+            msgs.push(sysMsg);
+            // 限制最多 50 条
+            if (msgs.length > MAX_PRIVATE_HISTORY) msgs.splice(0, msgs.length - MAX_PRIVATE_HISTORY);
+            savePrivateMessages(userName, peer, msgs);
+        } catch (e) {
+            console.error('[管理员撤回背景写入私聊消息失败]', e.message);
+        }
+        // 通过 onlineUsersByName 反查在线 socket，实时通知双方清除背景（userName 与 peer）
+        [userName, peer].forEach(u => {
+            if (!u) return;
+            const sid = onlineUsersByName.get(u);
+            if (sid) {
+                io.to(sid).emit('chat-bg-reset-by-admin', {
+                    peer: u === userName ? peer : userName,
+                    byAdmin: true
+                });
+            }
+        });
+        res.json({ success: true, existed: existed1 || existed2, userName, peer });
+    });
+
     // ===== 管理员后台 =====
     app.get("/zidian", (req, res) => {
         if (req.adminAuthed) return res.render('admin');
@@ -1194,7 +1735,7 @@ const main = async () => {
 
     app.post("/zidian", (req, res) => {
         const { password } = req.body || {};
-        if (password === ADMIN_PASSWORD) {
+        if (ADMIN_PASSWORD && password === ADMIN_PASSWORD) {
             const token = crypto.randomBytes(32).toString('hex');
             adminSessions.add(token);
             res.setHeader('Set-Cookie', `${ADMIN_COOKIE_NAME}=${token}; Path=/; HttpOnly; Max-Age=86400`);
@@ -1231,6 +1772,23 @@ const main = async () => {
         res.json({ rooms: roomList, total: roomList.length });
     });
 
+    // ===== 管理员 API：强制结束会议（掐断所有成员通话）=====
+    app.post("/api/admin/end-room", (req, res) => {
+        if (!req.adminAuthed) return res.status(401).json({ error: '未授权' });
+        const { roomId } = req.body || {};
+        if (!roomId) return res.status(400).json({ error: '缺少 roomId' });
+        const room = rooms.get(roomId);
+        if (!room) return res.json({ success: false, error: '房间不存在或已结束' });
+        const memberIds = Array.from(room.members.keys());
+        // 通知所有成员（含监控）会议已被管理员强制结束
+        for (const sid of memberIds) {
+            io.to(sid).emit('kicked', { reason: '会议已被管理员强制结束' });
+        }
+        rooms.delete(roomId);
+        console.log(`[管理员] 强制结束会议 ${roomId}, 共 ${memberIds.length} 人`);
+        res.json({ success: true, ended: memberIds.length });
+    });
+
     // ===== 管理员 API：所有消息（含已隐藏的）=====
     app.get("/api/admin/messages", (req, res) => {
         if (!req.adminAuthed) return res.status(401).json({ error: '未授权' });
@@ -1249,12 +1807,13 @@ const main = async () => {
         const users = Array.from(allUsersHistory.values()).map(u => {
             // 通过 u.name 查 userAvatarsByName / bannedUsersByName
             const av = userAvatarsByName.get(u.name);
-            const banInfo = bannedUsersByName.get(u.name) || null;
+            const banInfo = getActiveBan(u.name);
             return {
                 ...u,
                 online: onlineUsersByName.has(u.name),
                 banned: !!banInfo,
                 banInfo: banInfo,
+                hasPassword: userPasswordsByName.has(u.name),
                 // 头像相关字段
                 avatar: av && av.data ? av.data : null,
                 avatarBanned: !!(av && av.banned)
@@ -1263,11 +1822,78 @@ const main = async () => {
         res.json({ users, total: users.length, onlineCount: onlineUsers.size });
     });
 
+    // ===== 用户 API：查询用户名是否受密码保护（注册时提示输入密码）=====
+    app.post("/api/user/check-name", (req, res) => {
+        const { name } = req.body || {};
+        const userName = String(name || '').trim();
+        if (!userName) return res.status(400).json({ error: '缺少名称' });
+        res.json({ name: userName, hasPassword: userPasswordsByName.has(userName) });
+    });
+
+    // ===== 用户 API：设置/修改自己账号的密码（凭在线 socketId 验证身份）=====
+    app.post("/api/user/set-password", (req, res) => {
+        const { userName, socketId, oldPassword, newPassword } = req.body || {};
+        const name = String(userName || '').trim();
+        if (!name || !socketId) return res.status(400).json({ error: '缺少参数' });
+        // 验证身份：socketId 必须在线且名称一致（防止冒用他人名字设密码）
+        const onlineUser = onlineUsers.get(socketId);
+        if (!onlineUser || onlineUser.name !== name) {
+            return res.status(403).json({ error: '身份验证失败，无法设置密码' });
+        }
+        const existing = userPasswordsByName.get(name);
+        if (existing) {
+            // 已有密码：必须先验证旧密码
+            if (!oldPassword || hashPassword(String(oldPassword), existing.salt) !== existing.hash) {
+                return res.status(403).json({ error: '旧密码不正确' });
+            }
+        }
+        const pw = String(newPassword || '');
+        if (!pw || pw.length < 4) return res.status(400).json({ error: '密码不能为空且至少 4 位' });
+        if (pw.length > 64) return res.status(400).json({ error: '密码不能超过 64 位' });
+        const salt = crypto.randomBytes(16).toString('hex');
+        userPasswordsByName.set(name, { hash: hashPassword(pw, salt), salt, setPasswordAt: Date.now() });
+        saveUserPasswords();
+        console.log(`[密码保护] ${name} ${existing ? '修改' : '设置'}了密码`);
+        res.json({ success: true, hasPassword: true });
+    });
+
+    // ===== 管理员 API：设置/重置指定用户的密码 =====
+    app.post("/api/admin/set-user-password", (req, res) => {
+        if (!req.adminAuthed) return res.status(401).json({ error: '未授权' });
+        const { userName, password } = req.body || {};
+        const name = String(userName || '').trim();
+        if (!name) return res.status(400).json({ error: '缺少 userName' });
+        const pw = String(password || '');
+        if (!pw || pw.length < 4) return res.status(400).json({ error: '密码不能为空且至少 4 位' });
+        if (pw.length > 64) return res.status(400).json({ error: '密码不能超过 64 位' });
+        const salt = crypto.randomBytes(16).toString('hex');
+        const existed = userPasswordsByName.has(name);
+        userPasswordsByName.set(name, { hash: hashPassword(pw, salt), salt, setPasswordAt: Date.now() });
+        saveUserPasswords();
+        addAdminLog(req, existed ? '重置用户密码' : '设置用户密码', name, '');
+        console.log(`[密码保护] 管理员${existed ? '重置' : '设置'} ${name} 的密码`);
+        res.json({ success: true });
+    });
+
+    // ===== 管理员 API：移除指定用户的密码（该名字不再受保护）=====
+    app.post("/api/admin/remove-user-password", (req, res) => {
+        if (!req.adminAuthed) return res.status(401).json({ error: '未授权' });
+        const { userName } = req.body || {};
+        const name = String(userName || '').trim();
+        if (!name) return res.status(400).json({ error: '缺少 userName' });
+        if (!userPasswordsByName.has(name)) return res.status(404).json({ error: '该用户未设置密码' });
+        userPasswordsByName.delete(name);
+        saveUserPasswords();
+        addAdminLog(req, '移除用户密码', name, '');
+        console.log(`[密码保护] 管理员移除 ${name} 的密码`);
+        res.json({ success: true });
+    });
+
     // ===== 管理员 API：禁言/封禁用户（按 userName，兼容 socketId）=====
     app.post("/api/admin/ban", (req, res) => {
         if (!req.adminAuthed) return res.status(401).json({ error: '未授权' });
         // 兼容管理员页面传的 socketId / banChat / banMeeting 字段名
-        let { userName, socketId, reason, banFromChat, banFromMeeting, banChat, banMeeting } = req.body || {};
+        let { userName, socketId, reason, banFromChat, banFromMeeting, banChat, banMeeting, duration, banIpDevice } = req.body || {};
         // 若未传 userName，通过 socketId 反查在线用户的 name
         if (!userName && socketId) {
             const onlineUser = onlineUsers.get(socketId);
@@ -1285,21 +1911,60 @@ const main = async () => {
         if (banFromChat === undefined && banChat !== undefined) banFromChat = banChat;
         if (banFromMeeting === undefined && banMeeting !== undefined) banFromMeeting = banMeeting;
 
+        // 封禁时长：duration 为毫秒，0/缺省 = 永久
+        const durationMs = Number(duration) || 0;
+
         const banInfo = {
             reason: reason || '未提供理由',
             bannedAt: Date.now(),
             bannedFromChat: banFromChat !== false,
             bannedFromMeeting: !!banFromMeeting,
-            bannedBy: 'admin'
+            bannedBy: 'admin',
+            duration: durationMs,
+            expireAt: durationMs > 0 ? Date.now() + durationMs : null
         };
         bannedUsersByName.set(userName, banInfo);
+
+        // ===== IP/设备封禁：勾选后记录该用户当前 IP 与设备 ID，换账号/换设备也进不来 =====
+        let ipDeviceNote = '';
+        if (banIpDevice) {
+            const sid = onlineUsersByName.get(userName);
+            const targetSocket = sid ? io.sockets.sockets.get(sid) : null;
+            const ip = targetSocket ? getClientIp(targetSocket) : '';
+            const deviceId = (onlineUsers.get(sid) || {}).userId || '';
+            if (ip) {
+                bannedIPsByName.set(ip, { userName, reason: banInfo.reason, bannedAt: banInfo.bannedAt });
+                ipDeviceNote += `IP ${ip} `;
+            }
+            if (deviceId) {
+                bannedDevicesByName.set(deviceId, { userName, reason: banInfo.reason, bannedAt: banInfo.bannedAt });
+                ipDeviceNote += `设备 ${String(deviceId).slice(0, 8)}…`;
+            }
+        }
         saveBannedUsers();
+        // 封禁同时生成定向系统通知（meta 携带封禁详情，供客户端"查看详情"展示）
+        addNotification({
+            title: '封禁通知',
+            content: `你已被管理员封禁（${banInfo.bannedFromChat ? '禁言 ' : ''}${banInfo.bannedFromMeeting ? '禁用会议 ' : ''}${durationMs > 0 ? '· 时长 ' + formatDurationText(durationMs) : '· 永久'}）\n理由：${banInfo.reason}`,
+            target: userName,
+            meta: {
+                type: 'ban',
+                reason: banInfo.reason,
+                bannedFromChat: !!banInfo.bannedFromChat,
+                bannedFromMeeting: !!banInfo.bannedFromMeeting,
+                bannedAt: banInfo.bannedAt,
+                duration: durationMs,
+                expireAt: banInfo.expireAt
+            }
+        });
 
         // 通过 onlineUsersByName 反查在线 socketId，以便 emit
         const targetSocketId = onlineUsersByName.get(userName);
         // 通知用户被封禁
         if (targetSocketId) {
             io.to(targetSocketId).emit('user-banned', banInfo);
+            // 强制刷新客户端，重新拉取封禁状态与通知
+            io.to(targetSocketId).emit('force-refresh', { reason: '你已被封禁' });
             // 如果禁用会议功能，强制离开房间
             if (banFromMeeting) {
                 const user = onlineUsers.get(targetSocketId);
@@ -1308,7 +1973,8 @@ const main = async () => {
                 }
             }
         }
-        res.json({ success: true, banInfo, userName });
+        addAdminLog(req, '封禁用户', userName, `理由：${banInfo.reason} · ${banInfo.bannedFromChat ? '禁言 ' : ''}${banInfo.bannedFromMeeting ? '禁会议 ' : ''}${durationMs > 0 ? '时长 ' + formatDurationText(durationMs) : '永久'}${ipDeviceNote ? ' · 同时封禁 ' + ipDeviceNote : ''}`);
+        res.json({ success: true, banInfo, userName, ipDeviceNote });
     });
 
     // ===== 管理员 API：解封用户（按 userName，兼容 socketId）=====
@@ -1331,11 +1997,328 @@ const main = async () => {
 
         bannedUsersByName.delete(userName);
         saveBannedUsers();
+        // 回写该用户最近一条封禁通知的 meta，让"封禁详情"立即显示已解除
+        const lastBanNotif = notifications.find(n => n.target === userName && (n.meta || {}).type === 'ban' && !n.meta.unbannedByAdmin && !n.meta.unbannedByAppeal);
+        if (lastBanNotif) {
+            lastBanNotif.meta = lastBanNotif.meta || {};
+            lastBanNotif.meta.unbannedByAdmin = true;
+            lastBanNotif.meta.unbannedAt = Date.now();
+            saveNotifications();
+            // 实时推送更新后的通知，客户端立即替换本地缓存（无需刷新）
+            const s = onlineUsersByName.get(userName);
+            if (s) io.to(s).emit('notification-updated', lastBanNotif);
+        }
+        // 解封同时生成定向系统通知
+        addNotification({
+            title: '解封通知',
+            content: `你已被管理员解封，理由：${reason || '已解封'}。欢迎回来！请遵守社区规范，与大家友好相处。`,
+            target: userName,
+            meta: { type: 'unban', reason: reason || '已解封', unbannedAt: Date.now() }
+        });
         const targetSocketId = onlineUsersByName.get(userName);
         if (targetSocketId) {
             io.to(targetSocketId).emit('user-unbanned', { reason: reason || '已解封', unbannedAt: Date.now() });
+            io.to(targetSocketId).emit('force-refresh', { reason: '你已被解封' });
         }
+        // 解封同时解除该用户关联的 IP/设备封禁
+        removeIpDeviceBansByUser(userName);
+        saveBannedUsers();
+        addAdminLog(req, '解封用户', userName, `理由：${reason || '已解封'}（含关联 IP/设备解封）`);
         res.json({ success: true, reason: reason || '已解封', userName });
+    });
+
+    // ===== 管理员 API：下发系统通知（target 空/'all' = 全体，否则为指定用户名）=====
+    app.post("/api/admin/notify", (req, res) => {
+        if (!req.adminAuthed) return res.status(401).json({ error: '未授权' });
+        const { title, content, target } = req.body || {};
+        if (!content || !String(content).trim()) return res.status(400).json({ error: '通知内容不能为空' });
+        const notif = addNotification({ title, content: String(content).trim(), target: (target || '').trim() });
+        addAdminLog(req, '下发通知', (target || '').trim() || '全体', String(content).trim().slice(0, 50));
+        res.json({ success: true, notif });
+    });
+
+    // ===== 管理员 API：删除系统通知 =====
+    app.post("/api/admin/delete-notify", (req, res) => {
+        if (!req.adminAuthed) return res.status(401).json({ error: '未授权' });
+        const { id } = req.body || {};
+        const idx = notifications.findIndex(n => n.id === id);
+        if (idx === -1) return res.status(404).json({ error: '通知不存在' });
+        const removed = notifications[idx];
+        notifications.splice(idx, 1);
+        saveNotifications();
+        addAdminLog(req, '删除通知', removed.target === 'all' ? '全体' : removed.target, removed.title || '');
+        res.json({ success: true });
+    });
+
+    // ===== 管理员 API：清空全部系统通知（在线用户立即清空本地列表）=====
+    app.post("/api/admin/clear-notifications", (req, res) => {
+        if (!req.adminAuthed) return res.status(401).json({ error: '未授权' });
+        const count = notifications.length;
+        notifications.length = 0;
+        saveNotifications();
+        io.emit('notifications-cleared', { clearedAt: Date.now() });
+        console.log(`[系统通知] 管理员清空全部通知（${count} 条）`);
+        addAdminLog(req, '清空通知', '全体', `清空 ${count} 条系统通知`);
+        res.json({ success: true, cleared: count });
+    });
+
+    // ===== 管理员 API：清空全部申诉 =====
+    app.post("/api/admin/clear-appeals", (req, res) => {
+        if (!req.adminAuthed) return res.status(401).json({ error: '未授权' });
+        const count = appeals.length;
+        appeals.length = 0;
+        saveAppeals();
+        console.log(`[申诉] 管理员清空全部申诉（${count} 条）`);
+        addAdminLog(req, '清空申诉', '全部', `清空 ${count} 条申诉记录`);
+        res.json({ success: true, cleared: count });
+    });
+
+    // ===== 用户 API：提交消息举报（群聊/私聊消息均可举报）=====
+    app.post("/api/report", (req, res) => {
+        const { reporter, reportedUser, scene, msgType, msgPreview, reason } = req.body || {};
+        if (!reporter || !reportedUser || !reason) return res.status(400).json({ error: '缺少参数' });
+        // 不能举报自己
+        if (reporter === reportedUser) return res.status(400).json({ error: '不能举报自己' });
+        // 防刷：同一举报者对同一用户 60 秒内只能举报一次
+        const now = Date.now();
+        if (reports.some(r => r.reporter === reporter && r.reportedUser === reportedUser && now - r.createdAt < 60000)) {
+            return res.status(429).json({ error: '举报太频繁，请稍后再试' });
+        }
+        const report = {
+            id: 'r' + now + Math.random().toString(36).slice(2, 6),
+            reporter,
+            reportedUser,
+            scene: scene === 'private' ? '私聊' : '群聊',
+            msgType: msgType || 'text',
+            msgPreview: String(msgPreview || '').slice(0, 100),
+            reason: String(reason).slice(0, 100),
+            status: 'pending',
+            createdAt: now,
+            handledAt: null,
+            comment: ''
+        };
+        reports.unshift(report);
+        if (reports.length > MAX_REPORTS) reports.length = MAX_REPORTS;
+        saveReports();
+        console.log(`[举报] ${reporter} 举报 ${reportedUser}（${report.scene}）：${report.reason}`);
+        res.json({ success: true, report });
+    });
+
+    // ===== 管理员 API：举报列表（待处理排前）=====
+    app.get("/api/admin/reports", (req, res) => {
+        if (!req.adminAuthed) return res.status(401).json({ error: '未授权' });
+        const order = { pending: 0, resolved: 1, dismissed: 2 };
+        const list = [...reports].sort((a, b) => (order[a.status] - order[b.status]) || (b.createdAt - a.createdAt));
+        res.json({ list });
+    });
+
+    // ===== 管理员 API：处理举报（resolved=已处理 / dismissed=忽略）=====
+    app.post("/api/admin/handle-report", (req, res) => {
+        if (!req.adminAuthed) return res.status(401).json({ error: '未授权' });
+        const { id, action, comment } = req.body || {};
+        if (!id || !['resolved', 'dismissed'].includes(action)) return res.status(400).json({ error: '参数不正确' });
+        const report = reports.find(r => r.id === id);
+        if (!report) return res.status(404).json({ error: '举报不存在' });
+        if (report.status !== 'pending') return res.status(409).json({ error: '该举报已处理过' });
+        report.status = action;
+        report.handledAt = Date.now();
+        report.comment = String(comment || '').trim();
+        saveReports();
+        addAdminLog(req, action === 'resolved' ? '处理举报' : '忽略举报', report.reportedUser, `举报人 ${report.reporter} · ${report.reason}`);
+        res.json({ success: true, report });
+    });
+
+    // ===== 管理员 API：清空全部举报 =====
+    app.post("/api/admin/clear-reports", (req, res) => {
+        if (!req.adminAuthed) return res.status(401).json({ error: '未授权' });
+        const count = reports.length;
+        reports.length = 0;
+        saveReports();
+        addAdminLog(req, '清空举报', '全部', `清空 ${count} 条举报记录`);
+        res.json({ success: true, cleared: count });
+    });
+
+    // ===== 管理员 API：待处理数量（供后台小红点轮询：举报 + 申诉）=====
+    app.get("/api/admin/pending-count", (req, res) => {
+        if (!req.adminAuthed) return res.status(401).json({ error: '未授权' });
+        res.json({
+            reports: reports.filter(r => r.status === 'pending').length,
+            appeals: appeals.filter(a => a.status === 'pending').length
+        });
+    });
+
+    // ===== 管理员 API：操作日志列表 =====
+    app.get("/api/admin/logs", (req, res) => {
+        if (!req.adminAuthed) return res.status(401).json({ error: '未授权' });
+        res.json({ list: adminLogs });
+    });
+
+    // ===== 管理员 API：清空操作日志 =====
+    app.post("/api/admin/clear-logs", (req, res) => {
+        if (!req.adminAuthed) return res.status(401).json({ error: '未授权' });
+        const count = adminLogs.length;
+        adminLogs.length = 0;
+        saveAdminLogs();
+        res.json({ success: true, cleared: count });
+    });
+
+    // ===== 管理员 API：IP/设备封禁列表 =====
+    app.get("/api/admin/ip-bans", (req, res) => {
+        if (!req.adminAuthed) return res.status(401).json({ error: '未授权' });
+        const list = [
+            ...Array.from(bannedIPsByName.entries()).map(([ip, info]) => ({ type: 'ip', key: ip, ...info })),
+            ...Array.from(bannedDevicesByName.entries()).map(([dev, info]) => ({ type: 'device', key: dev, ...info }))
+        ];
+        res.json({ list });
+    });
+
+    // ===== 管理员 API：解除单条 IP/设备封禁 =====
+    app.post("/api/admin/unban-ip", (req, res) => {
+        if (!req.adminAuthed) return res.status(401).json({ error: '未授权' });
+        const { type, key } = req.body || {};
+        if (!type || !key) return res.status(400).json({ error: '缺少参数' });
+        const map = type === 'ip' ? bannedIPsByName : bannedDevicesByName;
+        if (!map.has(key)) return res.status(404).json({ error: '该 IP/设备未被封禁' });
+        map.delete(key);
+        saveBannedUsers();
+        addAdminLog(req, '解除IP/设备封禁', (type === 'ip' ? 'IP ' : '设备 ') + key, '');
+        res.json({ success: true });
+    });
+
+    // ===== 管理员 API：通知列表 =====
+    app.get("/api/admin/notifications", (req, res) => {
+        if (!req.adminAuthed) return res.status(401).json({ error: '未授权' });
+        res.json({ list: notifications });
+    });
+
+    // ===== 用户 API：拉取自己的通知（全体 + 定向给自己）=====
+    app.get("/api/notifications", (req, res) => {
+        const userName = req.query.userName;
+        if (!userName) return res.status(400).json({ error: '缺少 userName' });
+        const list = notifications.filter(n => n.target === 'all' || n.target === userName);
+        res.json({ list });
+    });
+
+    // ===== 用户 API：提交封禁申诉（每条封禁通知仅一次；驳回后不可再申诉）=====
+    app.post("/api/appeal", (req, res) => {
+        const { userName, notifId, text, images } = req.body || {};
+        if (!userName || !notifId) return res.status(400).json({ error: '缺少参数' });
+        // 必须处于封禁状态才能申诉
+        const banInfo = getActiveBan(userName);
+        if (!banInfo) return res.status(403).json({ error: '你当前未被封禁，无需申诉' });
+        // 该封禁通知已有申诉（无论何种状态）则拒绝再次提交
+        if (appeals.some(a => a.userName === userName && a.notifId === notifId)) {
+            return res.status(409).json({ error: '该封禁已提交过申诉，不能重复提交' });
+        }
+        const appealText = String(text || '').trim();
+        if (!appealText) return res.status(400).json({ error: '申诉内容不能为空' });
+        if (appealText.length > 200) return res.status(400).json({ error: '申诉内容不能超过 200 字' });
+        const imgs = Array.isArray(images) ? images.filter(Boolean) : [];
+        if (imgs.length > 2) return res.status(400).json({ error: '图片最多 2 张' });
+        for (const img of imgs) {
+            if (typeof img !== 'string' || !img.startsWith('data:image/')) return res.status(400).json({ error: '图片格式不正确' });
+            if (img.length > 800 * 1024) return res.status(400).json({ error: '单张图片过大（超过 800KB），请重新选择' });
+        }
+        const appeal = {
+            id: 'a' + Date.now() + Math.random().toString(36).slice(2, 6),
+            userName,
+            notifId,
+            banReason: banInfo.reason || '未提供理由',
+            text: appealText,
+            images: imgs,
+            status: 'pending',
+            createdAt: Date.now(),
+            handledAt: null,
+            comment: ''
+        };
+        appeals.unshift(appeal);
+        saveAppeals();
+        console.log(`[申诉] ${userName} 提交申诉（关联通知 ${notifId}）`);
+        res.json({ success: true, appeal });
+    });
+
+    // ===== 用户 API：拉取自己的申诉列表 =====
+    app.get("/api/appeal", (req, res) => {
+        const userName = req.query.userName;
+        if (!userName) return res.status(400).json({ error: '缺少 userName' });
+        res.json({ list: appeals.filter(a => a.userName === userName) });
+    });
+
+    // ===== 用户 API：封禁状态查询（封禁页轮询用，豁免 IP 拦截）=====
+    // 返回当前请求 IP 与关联用户名是否仍处于封禁中；全部解除后封禁页自动跳回聊天室
+    app.get("/api/ban-status", (req, res) => {
+        const userName = String(req.query.userName || '').trim();
+        const ipBan = checkIpDeviceBan(getHttpIp(req), null);
+        // 用户名封禁（限时封禁到期自动解封）
+        const userBan = userName ? getActiveBan(userName) : null;
+        res.json({
+            banned: !!(ipBan || userBan),
+            ipBanned: !!ipBan,
+            userBanned: !!userBan
+        });
+    });
+
+    // ===== 管理员 API：查看全部申诉（待处理排前）=====
+    app.get("/api/admin/appeals", (req, res) => {
+        if (!req.adminAuthed) return res.status(401).json({ error: '未授权' });
+        const order = { pending: 0, approved: 1, rejected: 2 };
+        const list = [...appeals].sort((a, b) => (order[a.status] - order[b.status]) || (b.createdAt - a.createdAt));
+        res.json({ list });
+    });
+
+    // ===== 管理员 API：处理申诉（同意=解封，驳回=维持封禁且不可再申诉）=====
+    app.post("/api/admin/handle-appeal", (req, res) => {
+        if (!req.adminAuthed) return res.status(401).json({ error: '未授权' });
+        const { id, action, comment } = req.body || {};
+        if (!id || !['approve', 'reject'].includes(action)) return res.status(400).json({ error: '参数不正确' });
+        const appeal = appeals.find(a => a.id === id);
+        if (!appeal) return res.status(404).json({ error: '申诉不存在' });
+        if (appeal.status !== 'pending') return res.status(409).json({ error: '该申诉已处理过' });
+        const commentText = String(comment || '').trim();
+        appeal.status = action === 'approve' ? 'approved' : 'rejected';
+        appeal.handledAt = Date.now();
+        appeal.comment = commentText;
+        saveAppeals();
+
+        if (action === 'approve') {
+            // 同意申诉：解除封禁（含关联 IP/设备封禁，否则用户会一直停留在封禁页）
+            bannedUsersByName.delete(appeal.userName);
+            removeIpDeviceBansByUser(appeal.userName);
+            saveBannedUsers();
+            // 回写原封禁通知的 meta，让"封禁详情"立即显示已解除（客户端无需刷新）
+            const banNotif = notifications.find(n => n.id === appeal.notifId);
+            if (banNotif) {
+                banNotif.meta = banNotif.meta || {};
+                banNotif.meta.unbannedByAppeal = true;
+                banNotif.meta.unbannedAt = Date.now();
+                saveNotifications();
+                // 实时推送更新后的通知，客户端立即替换本地缓存（无需刷新）
+                const s = onlineUsersByName.get(appeal.userName);
+                if (s) io.to(s).emit('notification-updated', banNotif);
+            }
+            const sid = onlineUsersByName.get(appeal.userName);
+            if (sid) {
+                io.to(sid).emit('user-unbanned', { reason: '申诉通过，已解除封禁', unbannedAt: Date.now() });
+                io.to(sid).emit('force-refresh', { reason: '申诉通过' });
+            }
+            addNotification({
+                title: '申诉结果',
+                content: `你提交的封禁申诉已通过，封禁已解除。欢迎回来！请遵守社区规范，与大家友好相处。${commentText ? '\n管理员意见：' + commentText : ''}`,
+                target: appeal.userName,
+                meta: { type: 'appeal-result', appealId: appeal.id, result: 'approved', comment: commentText }
+            });
+            console.log(`[申诉] ${appeal.userName} 的申诉已通过，解封（含关联 IP/设备）`);
+        } else {
+            addNotification({
+                title: '申诉结果',
+                content: `你提交的封禁申诉被驳回，封禁继续执行。${commentText ? '\n管理员意见：' + commentText : ''}`,
+                target: appeal.userName,
+                meta: { type: 'appeal-result', appealId: appeal.id, result: 'rejected', comment: commentText }
+            });
+            console.log(`[申诉] ${appeal.userName} 的申诉被驳回`);
+        }
+        addAdminLog(req, action === 'approve' ? '同意申诉（解封）' : '驳回申诉', appeal.userName, commentText || '');
+        res.json({ success: true, appeal });
     });
 
     // ===== 管理员 API：隐藏消息（在消息对象上加 banned 字段持久化）=====
@@ -1355,6 +2338,7 @@ const main = async () => {
         }
         // 广播隐藏消息通知
         io.emit('message-hidden', { msgId });
+        addAdminLog(req, '隐藏消息', msg.senderName || msg.name || '-', `消息ID ${msgId}`);
         res.json({ success: true, msgId });
     });
 
@@ -1369,6 +2353,7 @@ const main = async () => {
         saveChatHistory();
         io.emit('message-deleted', { msgId });
         console.log(`[管理员删除消息] ${msgId}`);
+        addAdminLog(req, '删除消息', '-', `消息ID ${msgId}`);
         res.json({ success: true });
     });
 
@@ -1381,6 +2366,7 @@ const main = async () => {
         saveChatHistory();
         io.emit('messages-cleared', {});
         console.log('[管理员清空所有消息]');
+        addAdminLog(req, '清空消息', '全体', '清空所有聊天消息');
         res.json({ success: true });
     });
 
@@ -1398,6 +2384,7 @@ const main = async () => {
             saveChatHistory();
         }
         io.emit('message-shown', { msgId });
+        addAdminLog(req, '恢复消息', msg?.senderName || msg?.name || '-', `消息ID ${msgId}`);
         res.json({ success: true, msgId });
     });
 
@@ -1433,6 +2420,7 @@ const main = async () => {
                 });
             }
         }
+        addAdminLog(req, '修改用户名', newName, `原名称 ${oldName} → 新名称 ${newName}`);
         res.json({ success: true, oldName, newName });
     });
 
@@ -1552,6 +2540,37 @@ const main = async () => {
             const userName = name || generateUserName();
             const now = Date.now();
 
+            // ===== IP/设备封禁检查：命中则拒绝登录（换用户名也进不来）=====
+            const ipDeviceBan = checkIpDeviceBan(getClientIp(socket), userId);
+            if (ipDeviceBan) {
+                console.log(`[IP/设备封禁] 拦截登录：${userName}（${ipDeviceBan.source}命中，关联用户 ${ipDeviceBan.userName}）`);
+                socket.emit('ip-device-banned', {
+                    source: ipDeviceBan.source,
+                    reason: ipDeviceBan.reason || '违反社区规定',
+                    bannedAt: ipDeviceBan.bannedAt || null,
+                    relatedUser: ipDeviceBan.userName || ''
+                });
+                return;
+            }
+
+            // ===== 用户名密码保护：设置了密码的名字必须凭密码登录，否则只能换名字 =====
+            const pwRecord = userPasswordsByName.get(userName);
+            if (pwRecord) {
+                const inputPassword = String((data && data.password) || '');
+                if (!inputPassword) {
+                    console.log(`[密码保护] 拒绝登录（未输入密码）：${userName}`);
+                    socket.emit('login-password-required', { userName });
+                    return;
+                }
+                if (hashPassword(inputPassword, pwRecord.salt) !== pwRecord.hash) {
+                    console.log(`[密码保护] 拒绝登录（密码错误）：${userName}`);
+                    socket.emit('login-password-wrong', { userName });
+                    return;
+                }
+                // 密码校验通过：通知客户端可记住密码（本机免重输）
+                socket.emit('login-password-ok', { userName });
+            }
+
             // ===== 去抖动：检查是否有同名的待离开计时器，若有则取消（快速重连不刷屏）=====
             const pendingLeaveSocketId = onlineUsersByName.get(userName);
             let isQuickReconnect = false;
@@ -1621,12 +2640,32 @@ const main = async () => {
                 notifyFriendsStatusChange(userName, true);
             }
 
-            // 发送封禁状态（如果有的话，按 userName 索引）
-            if (bannedUsersByName.has(userName)) {
-                socket.emit('user-banned', bannedUsersByName.get(userName));
+            // 发送封禁状态（如果有的话，按 userName 索引；限时封禁到期自动解封）
+            const loginBan = getActiveBan(userName);
+            if (loginBan) {
+                socket.emit('user-banned', loginBan);
+            }
+
+            // ===== 安全提醒：未设置密码的用户首次登录后收到一条提醒通知（只发一次）=====
+            if (name && !userPasswordsByName.has(userName)) {
+                const hasReminded = notifications.some(n => n.target === userName && (n.meta || {}).type === 'password-reminder');
+                if (!hasReminded) {
+                    addNotification({
+                        title: '安全提醒',
+                        content: `检测到你的账号「${userName}」还未设置密码，其他用户将可以直接使用这个名称进入聊天室。为了账号安全，请尽快在「设置 → 账号密码」中设置密码。`,
+                        target: userName,
+                        meta: { type: 'password-reminder' }
+                    });
+                }
             }
 
             console.log(`[聊天上线] ${userName} (${socket.id})${isQuickReconnect ? ' [快速重连]' : ''}`);
+
+            // 记录 IP -> 最近名称（供清缓存后自动恢复名称）
+            const loginIp = getClientIp(socket);
+            if (loginIp) {
+                ipLastName.set(loginIp, { name: userName, lastSeen: now });
+            }
         });
 
         // ===== 发送聊天消息 =====
@@ -1642,7 +2681,25 @@ const main = async () => {
 
             // 修复：如果用户未 login，自动用 socket.data.chatName 注册
             if (!user) {
+                // ===== 自动注册前必须先过 IP/设备封禁黑名单（封禁后弹窗拦截被绕过的漏洞）=====
+                const autoBan = checkIpDeviceBan(getClientIp(socket), (socket.data && socket.data.userId) || null);
+                if (autoBan) {
+                    console.log(`[IP/设备封禁] 拦截未登录发消息：${(socket.data && socket.data.chatName) || ''}（${autoBan.source}命中，关联用户 ${autoBan.userName}）`);
+                    socket.emit('ip-device-banned', {
+                        source: autoBan.source,
+                        reason: autoBan.reason || '违反社区规定',
+                        bannedAt: autoBan.bannedAt || null,
+                        relatedUser: autoBan.userName || ''
+                    });
+                    if (callback) callback({ error: 'IP 已被封禁' });
+                    return;
+                }
                 const userName = (socket.data && socket.data.chatName) || generateUserName();
+                // ===== 受密码保护的名字不能通过自动注册绕过密码校验 =====
+                if (userPasswordsByName.has(userName)) {
+                    if (callback) callback({ error: '该名称已设置密码，请先登录' });
+                    return;
+                }
                 onlineUsers.set(socket.id, {
                     name: userName, joinedAt: Date.now(),
                     nameLockedUntil: 0, lastRenameAt: 0, roomID: null,
@@ -1660,8 +2717,8 @@ const main = async () => {
                 return;
             }
 
-            // 检查是否被禁言（按 userName 索引）
-            const banInfo = bannedUsersByName.get(currentUser.name);
+            // 检查是否被禁言（按 userName 索引；限时封禁到期自动解封）
+            const banInfo = getActiveBan(currentUser.name);
             if (banInfo && banInfo.bannedFromChat) {
                 socket.emit('message-blocked', {
                     reason: `你已被禁言：${banInfo.reason}`,
@@ -1763,14 +2820,49 @@ const main = async () => {
             console.log(`[消息撤回] ${currentUser.name} 撤回了消息 ${msgId}`);
         });
 
+        // ===== 撤回私聊消息（持久化）=====
+        socket.on('recall-private-message', (data) => {
+            const { msgId, peer } = data || {};
+            if (!msgId || !peer) return;
+            const currentUser = onlineUsers.get(socket.id);
+            if (!currentUser) return;
+            // 安全校验：peer 必须是当前用户的好友
+            if (!areFriends(currentUser.name, peer)) {
+                socket.emit('recall-error', { msgId, reason: '只能对好友撤回消息' });
+                return;
+            }
+            const msgs = getPrivateMessages(currentUser.name, peer);
+            const msg = msgs.find(m => m.id === msgId);
+            if (!msg) return;
+            // 校验：只能撤回自己发送的消息
+            if (msg.sender !== currentUser.name) {
+                socket.emit('recall-error', { msgId, reason: '只能撤回自己的消息' });
+                return;
+            }
+            // 校验：撤回时间窗口 2 分钟
+            if (Date.now() - msg.timestamp >= 2 * 60 * 1000) {
+                socket.emit('recall-error', { msgId, reason: '超过 2 分钟，无法撤回' });
+                return;
+            }
+            msg.recalled = true;
+            msg.recalledAt = Date.now();
+            savePrivateMessages(currentUser.name, peer, msgs);
+            // 通知双方
+            socket.emit('private-message-recalled', { msgId, peer });
+            const peerSid = getSocketIdByUserName(peer);
+            if (peerSid) io.to(peerSid).emit('private-message-recalled', { msgId, peer: currentUser.name });
+            console.log(`[私聊消息撤回] ${currentUser.name} -> ${peer} 撤回了消息 ${msgId}`);
+        });
+
+
         // ===== 加入视频会议房间 =====
         socket.on('join-room', (data) => {
             const { roomID, peerUserId, isNative, isScreenShareSource, name, isGhost } = data;
             if (!roomID) return;
 
-            // 检查是否被禁用会议功能（按 userName 索引）
+            // 检查是否被禁用会议功能（按 userName 索引；限时封禁到期自动解封）
             const joinUser = onlineUsers.get(socket.id);
-            const banInfo = joinUser ? bannedUsersByName.get(joinUser.name) : null;
+            const banInfo = joinUser ? getActiveBan(joinUser.name) : null;
             if (banInfo && banInfo.bannedFromMeeting && !isGhost) {
                 socket.emit('kicked', { reason: '你已被禁用会议功能：' + banInfo.reason });
                 return;
@@ -1992,6 +3084,14 @@ const main = async () => {
             // 获取主叫名称
             const caller = onlineUsers.get(socket.id);
             const fromName = caller?.name || '未知用户';
+            // 服务端强制封禁检查：禁言或禁用会议功能的用户不能发起通话（私聊/群聊均拦截）
+            const callerBan = getActiveBan(fromName);
+            if (callerBan && (callerBan.bannedFromChat || callerBan.bannedFromMeeting)) {
+                const reason = callerBan.bannedFromChat ? '你已被禁言' : '你已被禁用会议功能';
+                socket.emit('call-error', { callId, message: `${reason}，无法发起通话` });
+                console.log(`[通话拦截] ${fromName} 发起通话被拒（${reason}）`);
+                return;
+            }
             // 存入待处理邀请队列（按被叫 userName 索引，外网 socket 断连时通过 HTTP 轮询兜底）
             const inviteData = {
                 from: socket.id,
@@ -2117,7 +3217,14 @@ const main = async () => {
         socket.leave(roomID);
         const onlineUser = onlineUsers.get(socket.id);
         if (onlineUser) onlineUser.roomID = null;
-        if (room.members.size === 0) { rooms.delete(roomID); return; }
+        // 房间无真实成员（非监控）时删除房间，避免残留监控用户导致会议被误判为进行中
+        const realMembers = Array.from(room.members.values()).filter(m => !m.isGhost);
+        if (realMembers.length === 0) {
+            rooms.delete(roomID);
+            // 通知残留的监控用户会议已结束
+            io.to(roomID).emit('meeting-ended', { roomId: roomID });
+            return;
+        }
         if (isGhost) { socket.to(roomID).emit("ghost-left", { peerUserId }); return; }
         if (room.hostId === socket.id) {
             const firstMember = Array.from(room.members.entries()).find(([sid, m]) => !m.isGhost);
@@ -2138,26 +3245,11 @@ const main = async () => {
     httpTestServer.listen({ port: 8081, host: '0.0.0.0' }, () => console.log('HTTP 测试服务已启动（端口 8081，完整功能）'));
 
     httpsServer.listen({ port: 3030, host: '::', ipv6Only: false }, () => {
-        // 动态获取本机 IPv4 地址，避免硬编码
-        const nets = os.networkInterfaces();
-        const localIps = [];
-        for (const name of Object.keys(nets)) {
-            for (const net of nets[name] || []) {
-                if (net.family === 'IPv4' && !net.internal) {
-                    localIps.push(net.address);
-                }
-            }
-        }
-        const displayIp = localIps[0] || '<your-server-ip>';
         console.log('==================================================');
         console.log('  服务器已启动（聊天+语音+管理员+禁言+违禁词）');
         console.log('--------------------------------------------------');
-        if (localIps.length > 0) {
-            localIps.forEach(ip => console.log(`  https://${ip}:3030`));
-        } else {
-            console.log('  https://<your-server-ip>:3030');
-        }
-        console.log(`  管理员: https://${displayIp}:3030/zidian`);
+        console.log('  https://<本机IP>:3030');
+        console.log('  管理员: https://<本机IP>:3030/zidian');
         console.log('  HTTP 测试: http://localhost:8081');
         console.log('==================================================');
     });

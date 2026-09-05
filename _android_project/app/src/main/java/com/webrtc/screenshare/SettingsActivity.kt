@@ -10,6 +10,7 @@ import android.widget.Toast
 import android.app.AlertDialog
 import org.json.JSONObject
 import androidx.appcompat.app.AppCompatActivity
+import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
 import javax.net.ssl.HttpsURLConnection
@@ -39,10 +40,21 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var btnCancel: Button
     private lateinit var btnCheckUpdate: Button
     private lateinit var tvUpdateResult: TextView
+    private lateinit var btnClearCache: Button
+    private lateinit var tvCacheInfo: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_settings)
+
+        // 全屏模式（与主界面保持一致）：只隐藏导航栏，保留顶部状态栏（可看到时间）
+        try {
+            val controller = androidx.core.view.WindowInsetsControllerCompat(window, window.decorView)
+            controller.hide(androidx.core.view.WindowInsetsCompat.Type.navigationBars())
+            controller.show(androidx.core.view.WindowInsetsCompat.Type.statusBars())
+            controller.systemBarsBehavior =
+                androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        } catch (e: Exception) { /* 忽略 */ }
 
         // 初始化视图
         editServerUrl = findViewById(R.id.editServerUrl)
@@ -55,6 +67,8 @@ class SettingsActivity : AppCompatActivity() {
         btnCancel = findViewById(R.id.btnCancel)
         btnCheckUpdate = findViewById(R.id.btnCheckUpdate)
         tvUpdateResult = findViewById(R.id.tvUpdateResult)
+        btnClearCache = findViewById(R.id.btnClearCache)
+        tvCacheInfo = findViewById(R.id.tvCacheInfo)
 
         // 显示当前保存的服务器地址和用户名称
         editServerUrl.text = SpannableStringBuilder(ServerConfig.getServerUrl(this))
@@ -68,10 +82,16 @@ class SettingsActivity : AppCompatActivity() {
             title = "首次使用：请输入你的名称"
         }
 
-        // 快速填充 IPv6 示例
+        // 快速填充 IPv6：优先使用设备当前公网 IPv6，取不到时回退默认地址
         btnFillIpv6.setOnClickListener {
-            editServerUrl.text = SpannableStringBuilder(ServerConfig.DEFAULT_SERVER_URL)
-            Toast.makeText(this, "已填充 IPv6 示例", Toast.LENGTH_SHORT).show()
+            val ipv6 = ServerConfig.getDevicePublicIpv6()
+            val url = if (ipv6 != null) "https://[$ipv6]:3030" else ServerConfig.DEFAULT_SERVER_URL
+            editServerUrl.text = SpannableStringBuilder(url)
+            Toast.makeText(
+                this,
+                if (ipv6 != null) "已填充当前公网 IPv6：$ipv6" else "未检测到公网 IPv6，已填充默认地址",
+                Toast.LENGTH_SHORT
+            ).show()
         }
 
         // 快速填充 IPv4 示例
@@ -132,6 +152,121 @@ class SettingsActivity : AppCompatActivity() {
         // 检查更新
         btnCheckUpdate.setOnClickListener {
             checkAppUpdate()
+        }
+
+        // 清理缓存
+        btnClearCache.setOnClickListener {
+            showClearCacheConfirmDialog()
+        }
+        // 显示当前缓存占用
+        refreshCacheSize()
+    }
+
+    /**
+     * 计算并显示当前缓存占用
+     */
+    private fun refreshCacheSize() {
+        thread {
+            val cacheBytes = calculateCacheSize()
+            runOnUiThread {
+                tvCacheInfo.text = "当前缓存占用：${formatFileSize(cacheBytes)}\n清理聊天记录缓存、背景图、网页缓存等临时文件，不会删除你的设置和账户信息"
+            }
+        }
+    }
+
+    /**
+     * 计算缓存总大小：应用 cacheDir + app_webview 缓存目录
+     */
+    private fun calculateCacheSize(): Long {
+        var total = 0L
+        try {
+            total += dirSize(cacheDir)
+        } catch(e: Exception) {}
+        try {
+            // WebView 专属缓存目录（不同 ROM 路径可能有差异，常见为 app_webview 或 appcache_db）
+            val webviewDir = File(cacheDir.parentFile, "app_webview")
+            if (webviewDir.exists()) total += dirSize(webviewDir)
+        } catch(e: Exception) {}
+        return total
+    }
+
+    private fun dirSize(dir: File): Long {
+        if (!dir.exists()) return 0
+        var size = 0L
+        val files = dir.listFiles() ?: return 0
+        for (f in files) {
+            size += if (f.isDirectory) dirSize(f) else f.length()
+        }
+        return size
+    }
+
+    private fun formatFileSize(bytes: Long): String {
+        if (bytes < 1024) return "${bytes}B"
+        val kb = bytes / 1024.0
+        if (kb < 1024) return String.format("%.1fKB", kb)
+        val mb = kb / 1024.0
+        return String.format("%.1fMB", mb)
+    }
+
+    /**
+     * 显示清理缓存确认对话框
+     */
+    private fun showClearCacheConfirmDialog() {
+        AlertDialog.Builder(this)
+            .setTitle("清理缓存")
+            .setMessage("将清理聊天记录缓存、背景图、网页缓存等临时文件。\n你的用户名、服务器设置、主题等配置不会被删除。\n清理后页面会自动刷新。")
+            .setPositiveButton("清理") { _, _ -> clearCache() }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    /**
+     * 执行清理缓存
+     */
+    private fun clearCache() {
+        btnClearCache.isEnabled = false
+        btnClearCache.text = "清理中..."
+        thread {
+            try {
+                // 1. 清理 WebView localStorage / sessionStorage
+                android.webkit.WebStorage.getInstance().deleteAllData()
+                // 2. 清理 WebView HTTP 缓存目录（包括图片、视频缓存）
+                val webviewDir = File(cacheDir.parentFile, "app_webview")
+                if (webviewDir.exists()) clearDir(webviewDir)
+                // 3. 清理应用 cacheDir
+                val beforeSize = calculateCacheSize()
+                clearDir(cacheDir)
+                val afterSize = calculateCacheSize()
+                val freed = beforeSize - afterSize
+                runOnUiThread {
+                    btnClearCache.isEnabled = true
+                    btnClearCache.text = "清理缓存"
+                    refreshCacheSize()
+                    Toast.makeText(this, "已清理 ${formatFileSize(freed)} 缓存", Toast.LENGTH_SHORT).show()
+                    // 通知 MainActivity 重新加载 WebView，让前端重新读取数据
+                    val resultIntent = Intent().putExtra("CLEAR_CACHE_DONE", true)
+                    setResult(RESULT_OK, resultIntent)
+                }
+            } catch(e: Exception) {
+                runOnUiThread {
+                    btnClearCache.isEnabled = true
+                    btnClearCache.text = "清理缓存"
+                    Toast.makeText(this, "清理失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    private fun clearDir(dir: File) {
+        if (!dir.exists()) return
+        val files = dir.listFiles() ?: return
+        for (f in files) {
+            if (f.isDirectory) {
+                clearDir(f)
+                f.delete()
+            } else {
+                f.delete()
+            }
         }
     }
 

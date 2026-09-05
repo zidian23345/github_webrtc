@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>视频会议</title>
     <link rel="stylesheet" href="/styles/fontawesome/css/font-awesome.min.css">
     <style>
@@ -703,6 +703,10 @@
             .members-header {
                 padding-top: calc(50px + env(safe-area-inset-top));
             }
+
+            .self-video {
+                top: calc(50px + env(safe-area-inset-top));
+            }
         }
 
         /* 防止 iOS Safari 双击缩放 */
@@ -842,6 +846,29 @@
         .chat-overlay-input-bar button {
             background: #07c160; color: #fff; border: none; padding: 0 16px;
             height: 40px; border-radius: 6px; font-size: 15px; cursor: pointer;
+        }
+
+        /* ===== 交互增强：键盘焦点环（暗色页面用亮绿色保证对比度）===== */
+        button:focus-visible, .back-btn:focus-visible, .kick-btn:focus-visible,
+        .control-btn:focus-visible, .waiting-share-btn:focus-visible, input:focus-visible {
+            outline: 2px solid #2dd881;
+            outline-offset: 2px;
+        }
+
+        /* ===== 桌面端 hover 反馈（仅真实指针设备）===== */
+        @media (hover: hover) and (pointer: fine) {
+            .control-btn:not(.disabled):hover, .back-btn:hover { background: rgba(255,255,255,0.25); }
+            .kick-btn:hover { opacity: 0.85; }
+            .waiting-share-btn:hover { opacity: 0.9; }
+        }
+
+        /* ===== 减弱动效：尊重系统无障碍设置 ===== */
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                animation-duration: 0.01ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.01ms !important;
+            }
         }
     </style>
 </head>
@@ -1112,6 +1139,14 @@
             window.location.href = '/';
         });
 
+        // 会议结束（所有真实成员已离开，房间被删除）——监控窗口自动关闭
+        utils.socket.on('meeting-ended', (data) => {
+            if (isGhostMode) {
+                alert('会议已结束，监控将关闭');
+                window.close();
+            }
+        });
+
         utils.socket.on('error-message', (data) => {
             showToast(data.message, 'error');
         });
@@ -1201,21 +1236,36 @@
             topBar.querySelector('.top-bar-left').appendChild(ghostTag);
         }
 
+        // ===== 清除通话状态并标记结束 =====
+        // 返回聊天页时页面卸载会导致 WebRTC 断开（通话实际已挂断），
+        // 必须清除 activeCall* 状态，否则 home 页会残留"正在和xx通话"的假横条
+        function endActiveCallState() {
+            const hadActive = !!localStorage.getItem('activeCallRoomId');
+            localStorage.removeItem('activeCallRoomId');
+            localStorage.removeItem('activeCallPeerName');
+            localStorage.removeItem('activeCallType');
+            if (hadActive) localStorage.setItem('callEnded', '1');  // 触发 home 页生成通话记录
+        }
+
+        // 兜底：任何方式离开 room 页面（侧滑直接回退绕过确认框、系统返回等）都清除通话状态
+        // pagehide 在移动端 WebView 中比 beforeunload 触发更可靠
+        window.addEventListener('pagehide', endActiveCallState);
+
         // ===== 离开会议 =====
         function leaveMeeting() {
             if (!confirm('确定要离开会议吗？')) return;
             utils.socket.emit('leave-room');
             // 通话结束：隐藏屏幕共享按钮
             try { if (window.AndroidApp && window.AndroidApp.setScreenShareButtonVisible) window.AndroidApp.setScreenShareButtonVisible(false); } catch(e) {}
+            endActiveCallState();
             window.location.href = '/';
         }
 
-        // ===== 返回聊天室（会议保持后台运行，类似 QQ）=====
+        // ===== 返回聊天室（侧滑返回确认后调用；页面跳转会断开 WebRTC，通话随之结束）=====
         function backToChat() {
-            // 不离开房间，只是跳转到聊天页面
-            // WebRTC 连接会继续保持，视频/音频不中断
-            // 注意：返回聊天室时隐藏屏幕共享按钮（通话仍在后台进行，但在聊天界面不需要此按钮）
+            // 注意：跳转到聊天页后本页面卸载，WebRTC 连接关闭，通话无法真正后台保持
             try { if (window.AndroidApp && window.AndroidApp.setScreenShareButtonVisible) window.AndroidApp.setScreenShareButtonVisible(false); } catch(e) {}
+            endActiveCallState();
             window.location.href = '/';
         }
 
